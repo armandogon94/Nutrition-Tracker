@@ -1,0 +1,19 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-surface: #0a0f1a;
+  --color-surface-raised: #111827;
+  --color-accent: #22d3ee;
+  --color-accent-warm: #f59e0b;
+  --color-protein: #3b82f6;
+  --color-carbs: #10b981;
+  --color-fat: #f59e0b;
+  --color-fiber: #8b5cf6;
+}
+
+body {
+  background: var(--color-surface);
+  color: #e5e7eb;
+}
