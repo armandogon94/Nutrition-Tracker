@@ -24,3 +24,33 @@ Object.defineProperty(globalThis.navigator, "mediaDevices", {
 // Mock HTMLMediaElement
 HTMLMediaElement.prototype.play = vi.fn().mockResolvedValue(undefined);
 HTMLMediaElement.prototype.pause = vi.fn();
+
+// Mock next/navigation
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    refresh: vi.fn(),
+  }),
+  useParams: () => ({}),
+  usePathname: () => "/dashboard",
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+// Mock next/dynamic to return the component directly
+vi.mock("next/dynamic", () => ({
+  default: (fn: () => Promise<any>) => {
+    const Component = require("react").lazy(fn);
+    return Component;
+  },
+}));
+
+// Mock next/link to render a plain anchor
+vi.mock("next/link", () => {
+  const React = require("react");
+  return {
+    default: ({ children, href, ...props }: any) =>
+      React.createElement("a", { href, ...props }, children),
+  };
+});

@@ -4,9 +4,9 @@ services:
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
-      POSTGRES_DB: ${POSTGRES_DB:-nutrition_db}
+      POSTGRES_DB: ${POSTGRES_DB:-fit_db}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,16 +21,17 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "${BACKEND_PORT:-8001}:8001"
+      - "${BACKEND_PORT:-8030}:8000"
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-nutrition_db}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-fit_db}
       ENVIRONMENT: development
       OFF_BASE_URL: ${OFF_BASE_URL:-https://world.openfoodfacts.org}
-      OFF_USER_AGENT: ${OFF_USER_AGENT:-NutritionTracker/1.0}
+      OFF_USER_AGENT: ${OFF_USER_AGENT:-FitTracker/2.0}
       USDA_FDC_KEY: ${USDA_FDC_KEY:-}
       FATSECRET_CONSUMER_KEY: ${FATSECRET_CONSUMER_KEY:-}
       FATSECRET_CONSUMER_SECRET: ${FATSECRET_CONSUMER_SECRET:-}
-      FRONTEND_URL: http://localhost:${FRONTEND_PORT:-3000}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      FRONTEND_URL: http://localhost:${FRONTEND_PORT:-3030}
     restart: unless-stopped
 
   web:
@@ -38,9 +39,9 @@ services:
     depends_on:
       - api
     ports:
-      - "${FRONTEND_PORT:-3000}:3000"
+      - "${FRONTEND_PORT:-3030}:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8001}
+      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-8030}
     restart: unless-stopped
 
 volumes:

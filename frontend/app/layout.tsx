@@ -1,26 +1,32 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import AuthHeader from "@/components/AuthHeader";
+import AuthGuard from "@/components/AuthGuard";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Nutrition Tracker",
-  description: "Track your nutrition with barcode scanning",
+  title: "FitTracker",
+  description: "Health & fitness tracking platform",
 };
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/scan", label: "Scan" },
   { href: "/meals", label: "Meals" },
-  { href: "/goals", label: "Goals" },
+  { href: "/workouts", label: "Workouts" },
+  { href: "/profile", label: "Profile" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es">
       <body className="min-h-screen flex flex-col">
-        <main className="flex-1 max-w-2xl mx-auto w-full px-4 pb-24 pt-6">
-          {children}
-        </main>
+        <AuthGuard>
+          <AuthHeader />
+          <main className="flex-1 max-w-2xl mx-auto w-full px-4 pb-24 pt-14">
+            {children}
+          </main>
+        </AuthGuard>
 
         {/* Bottom navigation - mobile first */}
         <nav className="fixed bottom-0 inset-x-0 bg-[#111827] border-t border-gray-800">

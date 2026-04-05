@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user_id
 from app.models.product import Product
 from app.schemas.product import ProductCreate, ProductResponse
 from app.services.product_lookup import lookup_product
@@ -41,7 +42,7 @@ async def search_product_by_barcode(
 
 @router.post("", response_model=ProductResponse, status_code=201)
 async def create_product(
-    data: ProductCreate, db: AsyncSession = Depends(get_db)
+    data: ProductCreate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ) -> Product:
     """Create a manual product entry."""
     # Check for existing barcode

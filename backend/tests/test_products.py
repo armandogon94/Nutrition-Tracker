@@ -111,6 +111,75 @@ async def test_lookup_usda_fdc_no_key():
     assert result is None
 
 
+async def test_search_product_by_barcode_cache_hit(client, db_session):
+    """Search endpoint returns a cached product from the local DB."""
+    from app.models.product import Product as ProductModel
+
+    product = ProductModel(
+        barcode="7501000315109",
+        name="Cached Chicken",
+        brand="TestBrand",
+        serving_size_g=100.0,
+        calories=165.0,
+        protein_g=31.0,
+        carbs_g=0.0,
+        fat_g=3.6,
+        fiber_g=0.0,
+        source="manual",
+    )
+    db_session.add(product)
+    await db_session.commit()
+
+    response = await client.get("/api/v1/products/search", params={"barcode": "7501000315109"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Cached Chicken"
+    assert data["barcode"] == "7501000315109"
+    assert data["calories"] == 165.0
+
+
+async def test_search_product_by_barcode_external_api(client, monkeypatch):
+    """Search endpoint cascades to external APIs when not in cache."""
+    from app.schemas.product import ProductCreate
+
+    mock_result = ProductCreate(
+        barcode="0049000006346",
+        name="Coca-Cola Classic",
+        brand="Coca-Cola",
+        serving_size_g=355.0,
+        calories=140.0,
+        protein_g=0.0,
+        carbs_g=39.0,
+        fat_g=0.0,
+        fiber_g=0.0,
+        source="open_food_facts",
+    )
+
+    async def mock_lookup(barcode, http_client):
+        return mock_result
+
+    monkeypatch.setattr("app.api.v1.products.lookup_product", mock_lookup)
+
+    response = await client.get("/api/v1/products/search", params={"barcode": "0049000006346"})
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == "Coca-Cola Classic"
+    assert data["barcode"] == "0049000006346"
+    assert data["source"] == "open_food_facts"
+
+
+async def test_search_product_by_barcode_not_found(client, monkeypatch):
+    """Search endpoint returns 404 when product not found anywhere."""
+    async def mock_lookup(barcode, http_client):
+        return None
+
+    monkeypatch.setattr("app.api.v1.products.lookup_product", mock_lookup)
+
+    response = await client.get("/api/v1/products/search", params={"barcode": "0000000000000"})
+    assert response.status_code == 404
+    assert "not found" in response.json()["detail"].lower()
+
+
 async def test_health_check(client):
     response = await client.get("/health")
     assert response.status_code == 200

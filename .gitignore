@@ -54,3 +54,14 @@ docker-compose.override.yml
 # Misc
 *.log
 .turbo/
+.ruff_cache/
+test-results/
+playwright-report/
+tsconfig.tsbuildinfo
+
+# Playwright MCP
+.playwright-mcp/
+
+# Claude Code - user specific
+.claude/projects/
+.claude/settings.local.json

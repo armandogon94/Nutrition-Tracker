@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user_id
 from app.models.meal import Meal, MealItem
 from app.models.product import Product
 from app.schemas.meal import MealCreate, MealItemCreate, MealItemResponse, MealResponse
@@ -14,9 +15,11 @@ router = APIRouter()
 
 
 @router.post("", response_model=MealResponse, status_code=201)
-async def create_meal(data: MealCreate, db: AsyncSession = Depends(get_db)) -> Meal:
+async def create_meal(
+    data: MealCreate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+) -> Meal:
     """Create a new meal."""
-    meal = Meal(**data.model_dump())
+    meal = Meal(user_id=user_id, **data.model_dump())
     db.add(meal)
     await db.flush()
     await db.refresh(meal)
@@ -25,7 +28,7 @@ async def create_meal(data: MealCreate, db: AsyncSession = Depends(get_db)) -> M
 
 @router.get("/{meal_date}", response_model=list[MealResponse])
 async def get_meals_by_date(
-    meal_date: date, user_id: UUID, db: AsyncSession = Depends(get_db)
+    meal_date: date, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ) -> list[Meal]:
     """Get all meals for a specific date."""
     result = await db.execute(
@@ -38,13 +41,13 @@ async def get_meals_by_date(
 
 @router.post("/{meal_id}/items", response_model=MealItemResponse, status_code=201)
 async def add_meal_item(
-    meal_id: UUID, data: MealItemCreate, db: AsyncSession = Depends(get_db)
+    meal_id: UUID, data: MealItemCreate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ) -> MealItem:
     """Add a food item to a meal."""
-    # Verify meal exists
+    # Verify meal exists and belongs to user
     result = await db.execute(select(Meal).where(Meal.id == meal_id))
     meal = result.scalar_one_or_none()
-    if not meal:
+    if not meal or meal.user_id != user_id:
         raise HTTPException(status_code=404, detail="Meal not found")
 
     # Verify product exists
@@ -62,9 +65,15 @@ async def add_meal_item(
 
 @router.delete("/{meal_id}/items/{item_id}", status_code=204)
 async def remove_meal_item(
-    meal_id: UUID, item_id: UUID, db: AsyncSession = Depends(get_db)
+    meal_id: UUID, item_id: UUID, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ) -> None:
     """Remove a food item from a meal."""
+    # Verify meal belongs to user
+    result = await db.execute(select(Meal).where(Meal.id == meal_id))
+    meal = result.scalar_one_or_none()
+    if not meal or meal.user_id != user_id:
+        raise HTTPException(status_code=404, detail="Meal not found")
+
     result = await db.execute(
         select(MealItem).where(MealItem.id == item_id, MealItem.meal_id == meal_id)
     )
@@ -75,10 +84,10 @@ async def remove_meal_item(
 
 
 @router.delete("/{meal_id}", status_code=204)
-async def delete_meal(meal_id: UUID, db: AsyncSession = Depends(get_db)) -> None:
+async def delete_meal(meal_id: UUID, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)) -> None:
     """Delete an entire meal and its items."""
     result = await db.execute(select(Meal).where(Meal.id == meal_id))
     meal = result.scalar_one_or_none()
-    if not meal:
+    if not meal or meal.user_id != user_id:
         raise HTTPException(status_code=404, detail="Meal not found")
     await db.delete(meal)

@@ -30,11 +30,11 @@ services:
       ENVIRONMENT: production
       SECRET_KEY: ${SECRET_KEY}
       OFF_BASE_URL: https://world.openfoodfacts.org
-      OFF_USER_AGENT: ${OFF_USER_AGENT:-NutritionTracker/1.0 (nutrition.armandointeligencia.com)}
+      OFF_USER_AGENT: ${OFF_USER_AGENT:-NutritionTracker/1.0 (fit.armandointeligencia.com)}
       USDA_FDC_KEY: ${USDA_FDC_KEY:-}
       FATSECRET_CONSUMER_KEY: ${FATSECRET_CONSUMER_KEY:-}
       FATSECRET_CONSUMER_SECRET: ${FATSECRET_CONSUMER_SECRET:-}
-      FRONTEND_URL: https://nutrition.armandointeligencia.com
+      FRONTEND_URL: https://fit.armandointeligencia.com
     networks:
       - backend
       - frontend
@@ -46,17 +46,17 @@ services:
           memory: 512M
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.nutrition-api.rule=Host(`api.nutrition.armandointeligencia.com`)"
+      - "traefik.http.routers.nutrition-api.rule=Host(`api.fit.armandointeligencia.com`)"
       - "traefik.http.routers.nutrition-api.entrypoints=websecure"
       - "traefik.http.routers.nutrition-api.tls.certresolver=letsencrypt"
-      - "traefik.http.services.nutrition-api.loadbalancer.server.port=8001"
+      - "traefik.http.services.nutrition-api.loadbalancer.server.port=8000"
 
   web:
     build: ./frontend
     depends_on:
       - api
     environment:
-      NEXT_PUBLIC_API_URL: https://api.nutrition.armandointeligencia.com
+      NEXT_PUBLIC_API_URL: https://api.fit.armandointeligencia.com
     networks:
       - frontend
     restart: unless-stopped
@@ -67,7 +67,7 @@ services:
           memory: 256M
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.nutrition.rule=Host(`nutrition.armandointeligencia.com`)"
+      - "traefik.http.routers.nutrition.rule=Host(`fit.armandointeligencia.com`)"
       - "traefik.http.routers.nutrition.entrypoints=websecure"
       - "traefik.http.routers.nutrition.tls.certresolver=letsencrypt"
       - "traefik.http.services.nutrition.loadbalancer.server.port=3000"

@@ -1,21 +1,21 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ProductCreate(BaseModel):
-    barcode: str
-    name: str
-    brand: str | None = None
-    serving_size_g: float = 100.0
-    calories: float = 0.0
-    protein_g: float = 0.0
-    carbs_g: float = 0.0
-    fat_g: float = 0.0
-    fiber_g: float = 0.0
-    source: str = "manual"
-    image_url: str | None = None
+    barcode: str = Field(min_length=1, max_length=50)
+    name: str = Field(min_length=1, max_length=255)
+    brand: str | None = Field(default=None, max_length=255)
+    serving_size_g: float = Field(default=100.0, gt=0, le=10000)
+    calories: float = Field(default=0.0, ge=0, le=99999)
+    protein_g: float = Field(default=0.0, ge=0, le=9999)
+    carbs_g: float = Field(default=0.0, ge=0, le=9999)
+    fat_g: float = Field(default=0.0, ge=0, le=9999)
+    fiber_g: float = Field(default=0.0, ge=0, le=9999)
+    source: str = Field(default="manual", pattern="^(manual|open_food_facts|usda|fatsecret|seed)$")
+    image_url: str | None = Field(default=None, max_length=2048)
 
 
 class ProductResponse(BaseModel):

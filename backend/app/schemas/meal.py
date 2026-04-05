@@ -1,7 +1,7 @@
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.product import ProductResponse
 
@@ -24,8 +24,7 @@ class MealItemResponse(BaseModel):
 
 
 class MealCreate(BaseModel):
-    user_id: uuid.UUID
-    meal_type: str = "breakfast"
+    meal_type: str = Field(default="breakfast", pattern="^(breakfast|lunch|dinner|snack)$")
     meal_date: date
 
 

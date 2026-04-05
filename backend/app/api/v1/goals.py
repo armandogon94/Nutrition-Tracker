@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.deps import get_current_user_id
 from app.models.goal import NutritionGoal
 from app.schemas.nutrition import NutritionGoalResponse, NutritionGoalUpdate
 
@@ -16,7 +17,7 @@ DEFAULT_GOALS = NutritionGoalResponse(
 
 
 @router.get("", response_model=NutritionGoalResponse)
-async def get_goals(user_id: UUID, db: AsyncSession = Depends(get_db)) -> NutritionGoalResponse:
+async def get_goals(user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)) -> NutritionGoalResponse:
     """Get nutrition goals for a user."""
     result = await db.execute(select(NutritionGoal).where(NutritionGoal.user_id == user_id))
     goal = result.scalar_one_or_none()
@@ -27,7 +28,7 @@ async def get_goals(user_id: UUID, db: AsyncSession = Depends(get_db)) -> Nutrit
 
 @router.put("", response_model=NutritionGoalResponse)
 async def update_goals(
-    user_id: UUID, data: NutritionGoalUpdate, db: AsyncSession = Depends(get_db)
+    data: NutritionGoalUpdate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ) -> NutritionGoalResponse:
     """Create or update nutrition goals."""
     result = await db.execute(select(NutritionGoal).where(NutritionGoal.user_id == user_id))
