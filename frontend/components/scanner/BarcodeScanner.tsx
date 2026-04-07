@@ -1,60 +1,81 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 
 interface BarcodeScannerProps {
   onScan: (barcode: string) => void;
   onError?: (error: string) => void;
 }
 
+function safeStopScanner(scanner: any) {
+  if (!scanner) return;
+  try {
+    const state = scanner.getState?.();
+    // Only stop if actually scanning (state 2 = SCANNING, state 3 = PAUSED)
+    if (state !== undefined && state !== 2 && state !== 3) return;
+    const result = scanner.stop();
+    if (result && typeof result.catch === "function") {
+      result.catch(() => {});
+    }
+  } catch {
+    // Scanner may throw synchronously if not running — ignore
+  }
+}
+
 export default function BarcodeScanner({ onScan, onError }: BarcodeScannerProps) {
   const [isScanning, setIsScanning] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const scannerRef = useRef<any>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
+  const onScanRef = useRef(onScan);
+  const onErrorRef = useRef(onError);
 
-  useEffect(() => {
-    let mounted = true;
+  onScanRef.current = onScan;
+  onErrorRef.current = onError;
 
-    async function startScanner() {
-      try {
-        // Dynamic import — html5-qrcode accesses window at import time
-        const { Html5Qrcode } = await import("html5-qrcode");
+  const startScanner = useCallback(async (mounted: { current: boolean }) => {
+    try {
+      const { Html5Qrcode } = await import("html5-qrcode");
 
-        if (!mounted || !containerRef.current) return;
+      if (!mounted.current) return;
 
-        const scanner = new Html5Qrcode("barcode-reader");
-        scannerRef.current = scanner;
+      const el = document.getElementById("barcode-reader");
+      if (!el) return;
 
-        await scanner.start(
-          { facingMode: "environment" },
-          { fps: 10, qrbox: { width: 250, height: 150 } },
-          (decodedText) => {
-            scanner.stop().catch(() => {});
-            setIsScanning(false);
-            onScan(decodedText);
-          },
-          () => {} // Ignore scan failures (no barcode in frame)
-        );
+      const scanner = new Html5Qrcode("barcode-reader");
+      scannerRef.current = scanner;
 
-        if (mounted) setIsScanning(true);
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Camera access denied";
-        if (mounted) {
-          setCameraError(message);
-          onError?.(message);
-        }
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 150 } },
+        (decodedText) => {
+          safeStopScanner(scanner);
+          setIsScanning(false);
+          onScanRef.current(decodedText);
+        },
+        () => {}
+      );
+
+      if (mounted.current) setIsScanning(true);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Camera access denied";
+      if (mounted.current) {
+        setCameraError(message);
+        onErrorRef.current?.(message);
       }
     }
+  }, []);
 
-    startScanner();
+  useEffect(() => {
+    const mounted = { current: true };
+    startScanner(mounted);
 
     return () => {
-      mounted = false;
-      scannerRef.current?.stop().catch(() => {});
+      mounted.current = false;
+      safeStopScanner(scannerRef.current);
+      scannerRef.current = null;
     };
-  }, [onScan, onError]);
+  }, [startScanner]);
 
   if (cameraError) {
     return (
@@ -72,7 +93,6 @@ export default function BarcodeScanner({ onScan, onError }: BarcodeScannerProps)
     <div className="relative">
       <div
         id="barcode-reader"
-        ref={containerRef}
         className="w-full max-w-md mx-auto rounded-xl overflow-hidden border-2 border-cyan-500/50"
       />
       {isScanning && (

@@ -83,7 +83,7 @@ export default function WorkoutLogPage() {
 
   if (!session) return <div className="text-center py-12 text-gray-500">Loading session...</div>;
 
-  const uniqueExercises = [...new Map(session.sets.map(s => [s.exercise_id, s.exercise])).values()];
+  const uniqueExercises = Array.from(new Map(session.sets.map(s => [s.exercise_id, s.exercise])).values());
 
   return (
     <div className="space-y-4">

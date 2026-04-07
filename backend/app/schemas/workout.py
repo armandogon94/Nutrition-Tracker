@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.exercise import ExerciseResponse
 
@@ -66,6 +66,11 @@ class SessionCreate(BaseModel):
     program_id: uuid.UUID | None = None
     program_day_id: uuid.UUID | None = None
     started_at: datetime
+
+    @field_validator("started_at", mode="after")
+    @classmethod
+    def strip_tz(cls, v: datetime) -> datetime:
+        return v.replace(tzinfo=None) if v.tzinfo else v
 
 
 class SetCreate(BaseModel):

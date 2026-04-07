@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import ManualEntry from "@/components/scanner/ManualEntry";
 import { addMealItem, createMeal, searchProduct } from "@/lib/api";
 import type { Product } from "@/lib/types";
@@ -15,12 +16,14 @@ const BarcodeScanner = dynamic(
 const MEAL_TYPES = ["breakfast", "lunch", "dinner", "snack"] as const;
 
 export default function ScanPage() {
+  const router = useRouter();
   const [product, setProduct] = useState<Product | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [selectedMeal, setSelectedMeal] = useState<string>("lunch");
   const [servings, setServings] = useState(1);
+  const [scanKey, setScanKey] = useState(0);
 
   const handleBarcode = async (barcode: string) => {
     setIsLoading(true);
@@ -29,10 +32,14 @@ export default function ScanPage() {
     setSuccess(null);
 
     try {
+      console.log("[scan] Looking up barcode:", barcode);
       const found = await searchProduct(barcode);
+      console.log("[scan] Product found:", JSON.stringify(found));
       setProduct(found);
-    } catch {
-      setError(`Product not found for barcode: ${barcode}. Try manual entry.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[scan] Error:", msg, err);
+      setError(`Product not found for barcode: ${barcode}. ${msg}`);
     } finally {
       setIsLoading(false);
     }
@@ -43,12 +50,16 @@ export default function ScanPage() {
     setIsLoading(true);
     try {
       const today = new Date().toISOString().split("T")[0];
+      console.log("[scan] Creating meal:", selectedMeal, today);
       const meal = await createMeal(selectedMeal, today);
+      console.log("[scan] Meal created:", JSON.stringify(meal));
       await addMealItem(meal.id, product.id, servings);
       setSuccess(`Added ${product.name} to ${selectedMeal}!`);
       setProduct(null);
       setServings(1);
     } catch (err) {
+      const msg = err instanceof Error ? `${err.message}\n${err.stack}` : String(err);
+      console.error("[scan] Add to meal error:", msg);
       setError(err instanceof Error ? err.message : "Failed to add to meal");
     } finally {
       setIsLoading(false);
@@ -60,7 +71,7 @@ export default function ScanPage() {
       <h1 className="text-2xl font-bold tracking-tight">Scan Food</h1>
 
       {/* Camera scanner */}
-      <BarcodeScanner onScan={handleBarcode} />
+      <BarcodeScanner key={scanKey} onScan={handleBarcode} />
 
       {/* Manual entry fallback */}
       <div>
@@ -78,12 +89,40 @@ export default function ScanPage() {
       )}
       {error && (
         <div className="p-3 bg-red-900/30 border border-red-700 rounded-lg text-red-300 text-sm">
-          {error}
+          <p>{error}</p>
+          <div className="flex gap-3 mt-3">
+            <button
+              onClick={() => { setError(null); setScanKey(k => k + 1); }}
+              className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-500 transition-colors"
+            >
+              Try Again
+            </button>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-600 transition-colors"
+            >
+              Go to Dashboard
+            </button>
+          </div>
         </div>
       )}
       {success && (
         <div className="p-3 bg-emerald-900/30 border border-emerald-700 rounded-lg text-emerald-300 text-sm">
-          {success}
+          <p>{success}</p>
+          <div className="flex gap-3 mt-3">
+            <button
+              onClick={() => { setSuccess(null); setScanKey(k => k + 1); }}
+              className="px-4 py-2 bg-cyan-600 text-white rounded-lg text-sm font-medium hover:bg-cyan-500 transition-colors"
+            >
+              Scan Another
+            </button>
+            <button
+              onClick={() => router.push("/dashboard")}
+              className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-gray-600 transition-colors"
+            >
+              Go to Dashboard
+            </button>
+          </div>
         </div>
       )}
 
@@ -113,25 +152,25 @@ export default function ScanPage() {
           <div className="grid grid-cols-4 gap-2 text-center text-sm">
             <div className="bg-gray-700/50 rounded-lg p-2">
               <div className="text-amber-400 font-bold">
-                {Math.round(product.calories)}
+                {Math.round(product.calories ?? 0)}
               </div>
               <div className="text-xs text-gray-500">kcal</div>
             </div>
             <div className="bg-gray-700/50 rounded-lg p-2">
               <div className="text-blue-400 font-bold">
-                {product.protein_g.toFixed(1)}g
+                {(product.protein_g ?? 0).toFixed(1)}g
               </div>
               <div className="text-xs text-gray-500">Protein</div>
             </div>
             <div className="bg-gray-700/50 rounded-lg p-2">
               <div className="text-emerald-400 font-bold">
-                {product.carbs_g.toFixed(1)}g
+                {(product.carbs_g ?? 0).toFixed(1)}g
               </div>
               <div className="text-xs text-gray-500">Carbs</div>
             </div>
             <div className="bg-gray-700/50 rounded-lg p-2">
               <div className="text-amber-400 font-bold">
-                {product.fat_g.toFixed(1)}g
+                {(product.fat_g ?? 0).toFixed(1)}g
               </div>
               <div className="text-xs text-gray-500">Fat</div>
             </div>

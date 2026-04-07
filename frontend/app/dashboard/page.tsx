@@ -22,17 +22,18 @@ export default function DashboardPage() {
     const today = new Date().toISOString().split("T")[0];
     const weekAgo = new Date(Date.now() - 6 * 86400000).toISOString().split("T")[0];
 
-    Promise.all([
+    Promise.allSettled([
       getDailyNutrition(today),
       getWeeklyNutrition(weekAgo, today),
       getGoals(),
     ])
       .then(([d, w, g]) => {
-        setDaily(d);
-        setWeekly(w);
-        setGoals(g);
-      })
-      .catch((err) => setError(err.message));
+        if (d.status === "fulfilled") setDaily(d.value);
+        if (w.status === "fulfilled") setWeekly(w.value);
+        if (g.status === "fulfilled") setGoals(g.value);
+        const errors = [d, w, g].filter(r => r.status === "rejected").map(r => (r as PromiseRejectedResult).reason?.message);
+        if (errors.length) setError(errors.join("; "));
+      });
   }, []);
 
   const caloriePercent = daily
