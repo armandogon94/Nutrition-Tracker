@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
+from app.core.datetime_utils import utcnow_naive
 from app.core.deps import get_current_user_id
 from app.models.workout import (
     PersonalRecord,
@@ -125,7 +126,7 @@ async def complete_session(
     if ws.completed_at is not None:
         raise HTTPException(status_code=409, detail="Session already completed")
 
-    ws.completed_at = datetime.utcnow()
+    ws.completed_at = utcnow_naive()
     ws.duration_minutes = int((ws.completed_at - ws.started_at).total_seconds() / 60)
     if data.notes:
         ws.notes = data.notes
@@ -145,7 +146,7 @@ async def get_workout_history(
     db: AsyncSession = Depends(get_db),
 ) -> list[WorkoutHistoryEntry]:
     if not end_date:
-        end_date = datetime.utcnow()
+        end_date = utcnow_naive()
     if not start_date:
         start_date = end_date - timedelta(days=30)
 
@@ -199,7 +200,7 @@ async def get_volume(
     period: str = Query(default="week", pattern="^(week|month)$"),
     db: AsyncSession = Depends(get_db),
 ) -> list[VolumeByMuscle]:
-    now = datetime.utcnow()
+    now = utcnow_naive()
     if period == "week":
         start = now - timedelta(days=7)
     else:

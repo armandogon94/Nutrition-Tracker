@@ -1,10 +1,14 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class ShoppingList(Base):
@@ -14,7 +18,7 @@ class ShoppingList(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(index=True)
     meal_plan_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("meal_plans.id", ondelete="SET NULL"))
     name: Mapped[str | None] = mapped_column(String(255))
-    generated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    generated_at: Mapped[datetime] = mapped_column(default=_utcnow)
     completed_at: Mapped[datetime | None] = mapped_column()
 
     items: Mapped[list["ShoppingListItem"]] = relationship(
@@ -32,6 +36,6 @@ class ShoppingListItem(Base):
     unit: Mapped[str | None] = mapped_column(String(50))
     category: Mapped[str | None] = mapped_column(String(100))
     is_checked: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
 
     shopping_list: Mapped["ShoppingList"] = relationship(back_populates="items")
