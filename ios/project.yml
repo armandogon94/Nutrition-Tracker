@@ -1,0 +1,74 @@
+name: FitTracker
+
+options:
+  deploymentTarget:
+    iOS: "26.0"
+  bundleIdPrefix: com.armandointeligencia
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+  xcodeVersion: "16.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: "Automatic"
+    ENABLE_USER_SCRIPT_SANDBOXING: "YES"
+    GCC_C_LANGUAGE_STANDARD: gnu17
+    CLANG_CXX_LANGUAGE_STANDARD: "gnu++20"
+    CLANG_ENABLE_OBJC_WEAK: "YES"
+    CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER: "YES"
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: "NO"
+    SWIFT_STRICT_CONCURRENCY: "complete"
+
+targets:
+  FitTracker:
+    type: application
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: FitTracker
+    resources:
+      - path: FitTracker/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.armandointeligencia.FitTracker
+        PRODUCT_NAME: "FitTracker"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        ENABLE_PREVIEWS: "YES"
+        SWIFT_EMIT_LOC_STRINGS: "YES"
+        GENERATE_INFOPLIST_FILE: "YES"
+        TARGETED_DEVICE_FAMILY: "1"
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: "YES"
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: "FitTracker"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
+    info:
+      path: FitTracker/Info.plist
+      properties:
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+        NSCameraUsageDescription: "FitTracker uses the camera to scan barcodes on food packaging and take photos of your meals."
+        NSFaceIDUsageDescription: "Use Face ID to unlock FitTracker."
+        NSPhotoLibraryUsageDescription: "Attach photos of meals from your photo library."
+        NSHealthShareUsageDescription: "FitTracker reads bodyweight and active energy burned to calibrate your nutrition and workout tracking."
+        NSHealthUpdateUsageDescription: "FitTracker writes dietary intake and completed workouts so they appear in the Health app."
+        NSUserNotificationsUsageDescription: "FitTracker sends rest timer alerts and daily reminders."
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: "AccentColor"
+
+  FitTrackerTests:
+    type: bundle.unit-test
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: FitTrackerTests
+    dependencies:
+      - target: FitTracker
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.armandointeligencia.FitTrackerTests
+        GENERATE_INFOPLIST_FILE: "YES"
