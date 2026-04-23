@@ -1,5 +1,7 @@
 # FitTracker - Health & Fitness Platform
 
+> **Port allocation:** See [PORTS.md](PORTS.md) before changing any docker-compose ports. All ports outside the assigned ranges are taken by other projects.
+
 Mobile-first health and fitness web app with three modules: **Nutrition Tracking** (barcode scanning, photo recognition, meal logging), **Meal Planning** (weekly planner, shopping lists, TDEE calculator), and **Workout Tracker** (programs, gym logging, rest timer, progressive overload). Built for Spanish-speaking Latin American users. Deploys to fit.armandointeligencia.com.
 
 ## Tech Stack
