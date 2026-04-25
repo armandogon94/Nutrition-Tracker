@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.datetime_utils import utcnow_naive
 from app.models.exercise import Exercise
 from app.models.workout import (
     PersonalRecord,
@@ -53,7 +54,7 @@ async def check_and_update_pr(
             max_weight_kg=weight_kg,
             max_reps_at_weight=reps,
             estimated_1rm=e1rm,
-            achieved_at=datetime.utcnow(),
+            achieved_at=utcnow_naive(),
         )
         session.add(pr)
         return True
@@ -62,7 +63,7 @@ async def check_and_update_pr(
         existing_pr.max_weight_kg = weight_kg
         existing_pr.max_reps_at_weight = reps
         existing_pr.estimated_1rm = e1rm
-        existing_pr.achieved_at = datetime.utcnow()
+        existing_pr.achieved_at = utcnow_naive()
         return True
 
     return False

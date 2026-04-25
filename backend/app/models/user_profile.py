@@ -1,10 +1,14 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class UserProfile(Base):
@@ -25,5 +29,5 @@ class UserProfile(Base):
     custom_fat_g: Mapped[int | None] = mapped_column()
     bmr: Mapped[float | None] = mapped_column()
     tdee: Mapped[float | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow, onupdate=_utcnow)

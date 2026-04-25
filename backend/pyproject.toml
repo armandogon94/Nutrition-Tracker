@@ -32,7 +32,11 @@ target-version = "py312"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["E", "F", "I"]
+# E/F = pycodestyle/pyflakes; I = isort.
+# DTZ003 specifically forbids `datetime.datetime.utcnow()` which is deprecated
+# in Python 3.12+. All timestamps must use `datetime.now(timezone.utc)` to
+# preserve timezone information. See Slice 9.1.
+select = ["E", "F", "I", "DTZ003"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

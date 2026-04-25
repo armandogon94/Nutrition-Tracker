@@ -1,10 +1,14 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 
 from sqlalchemy import Boolean, Date, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class MealPlan(Base):
@@ -16,8 +20,8 @@ class MealPlan(Base):
     week_start_date: Mapped[date] = mapped_column(Date)
     notes: Mapped[str | None] = mapped_column(Text)
     is_template: Mapped[bool] = mapped_column(Boolean, default=False)
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=_utcnow, onupdate=_utcnow)
 
     items: Mapped[list["MealPlanItem"]] = relationship(
         back_populates="meal_plan", cascade="all, delete-orphan", lazy="selectin"
@@ -34,7 +38,7 @@ class MealPlanItem(Base):
     meal_type: Mapped[str] = mapped_column(String(50))
     quantity_servings: Mapped[float] = mapped_column(default=1.0)
     quantity_grams: Mapped[float | None] = mapped_column()
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
 
     meal_plan: Mapped["MealPlan"] = relationship(back_populates="items")
     product: Mapped["Product"] = relationship(lazy="selectin")

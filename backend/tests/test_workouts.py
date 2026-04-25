@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -84,7 +84,7 @@ async def test_create_program(auth_client):
 
 
 async def test_start_session(auth_client):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     response = await auth_client.post(
         "/api/v1/workouts/sessions",
         json={"started_at": now},
@@ -97,7 +97,7 @@ async def test_start_session(auth_client):
 
 
 async def test_get_session(auth_client):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     create_resp = await auth_client.post(
         "/api/v1/workouts/sessions",
         json={"started_at": now},
@@ -114,7 +114,7 @@ async def test_log_set(auth_client, db_session):
     exercise = await _create_exercise(db_session, "log-set")
 
     # Start session
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     session_resp = await auth_client.post(
         "/api/v1/workouts/sessions",
         json={"started_at": now},
@@ -161,7 +161,7 @@ async def test_log_set_session_not_found(auth_client, db_session):
 
 
 async def test_complete_session(auth_client):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     session_resp = await auth_client.post(
         "/api/v1/workouts/sessions",
         json={"started_at": now},
@@ -183,7 +183,7 @@ async def test_get_workout_history(auth_client, db_session):
     exercise = await _create_exercise(db_session, "history")
 
     # Create and complete a session
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     session_resp = await auth_client.post(
         "/api/v1/workouts/sessions",
         json={"started_at": now.isoformat()},
@@ -223,7 +223,7 @@ async def test_get_workout_history(auth_client, db_session):
 async def test_get_volume(auth_client, db_session):
     exercise = await _create_exercise(db_session, "volume")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     session_resp = await auth_client.post(
         "/api/v1/workouts/sessions",
         json={"started_at": now.isoformat()},
@@ -256,7 +256,7 @@ async def test_get_volume(auth_client, db_session):
 async def test_get_personal_records(auth_client, db_session):
     exercise = await _create_exercise(db_session, "pr-test")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     session_resp = await auth_client.post(
         "/api/v1/workouts/sessions",
         json={"started_at": now.isoformat()},

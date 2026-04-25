@@ -1,10 +1,14 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Exercise(Base):
@@ -19,4 +23,4 @@ class Exercise(Base):
     instructions: Mapped[str | None] = mapped_column(Text)
     video_url: Mapped[str | None] = mapped_column(Text)
     category: Mapped[str | None] = mapped_column(String(100))
-    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(default=_utcnow)
