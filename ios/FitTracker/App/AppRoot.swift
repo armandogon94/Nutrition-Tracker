@@ -1,47 +1,41 @@
 //
 //  AppRoot.swift
-//  Root view. Slice 0: shows a splash with theme-aware backdrop and
-//  a Debug `PingView` (wired in Slice 0.8). Replaced in Slice 1 by
-//  AuthGate which swaps between LoginView and MainTabView.
+//  Slice 0.5: routes between LoginView (when not authenticated) and
+//  MainTabView (when authenticated). Auth state is owned by the
+//  injected MockAuthService. Real backend wiring lands in Slice 1.
 //
 
 import SwiftUI
 
 struct AppRoot: View {
-    @Environment(\.appTheme) private var theme
+    @Environment(MockServiceContainer.self) private var services
 
     var body: some View {
         ZStack {
             ThemedBackdrop()
 
-            VStack(spacing: 20) {
-                Text("FitTracker")
-                    .font(theme.font.largeTitle)
-                    .foregroundStyle(theme.textPrimary)
-
-                Text(theme.displayName)
-                    .font(theme.font.caption)
-                    .foregroundStyle(theme.textTertiary)
-                    .tracking(1.5)
-
-                #if DEBUG
-                PingView()
-                    .padding(.top, 24)
-                #endif
+            if services.auth.isAuthenticated {
+                MainTabView()
+                    .transition(.opacity)
+            } else {
+                LoginView()
+                    .transition(.opacity)
             }
-            .padding(24)
         }
+        .animation(.easeInOut(duration: 0.25), value: services.auth.isAuthenticated)
     }
 }
 
-#Preview("AppRoot — Liquid Glass") {
+#Preview("AppRoot — Liquid Glass — Unauthed") {
     AppRoot()
         .environment(\.appTheme, LiquidGlassTheme())
+        .environment(MockServiceContainer())
         .preferredColorScheme(.dark)
 }
 
-#Preview("AppRoot — Health Cards") {
+#Preview("AppRoot — Health Cards — Unauthed") {
     AppRoot()
         .environment(\.appTheme, HealthCardsTheme())
+        .environment(MockServiceContainer())
         .preferredColorScheme(.light)
 }

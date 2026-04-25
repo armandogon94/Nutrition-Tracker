@@ -11,11 +11,13 @@ import SwiftUI
 @main
 struct FitTrackerApp: App {
     @State private var themeStore = ThemeStore()
+    @State private var services = MockServiceContainer()
 
     var body: some Scene {
         WindowGroup {
             ThemedRootView()
                 .environment(themeStore)
+                .environment(services)
         }
     }
 }
