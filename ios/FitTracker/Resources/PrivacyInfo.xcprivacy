@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Slice 0 skeleton. Populated progressively:
+        Slice  2  — HealthKit read (bodyweight, active energy)
+        Slice  3  — HealthKit write (dietary), Claude Vision photo upload
+        Slice  7  — HealthKit workout write, notifications
+        Slice 11  — final pass: all required-reason APIs enumerated,
+                    all collected data types declared.
+      See SPEC.md §15 and plans/slice-11-testflight.md Task 11.3.
+    -->
+
+    <!-- We do not track users across apps or websites -->
+    <key>NSPrivacyTracking</key>
+    <false/>
+
+    <!-- No third-party tracking domains -->
+    <key>NSPrivacyTrackingDomains</key>
+    <array/>
+
+    <!-- Collected data types. Populated per slice as collection points are added. -->
+    <key>NSPrivacyCollectedDataTypes</key>
+    <array/>
+
+    <!-- Apple-required "reasons" for certain APIs. Populated in Slice 11. -->
+    <key>NSPrivacyAccessedAPITypes</key>
+    <array/>
+</dict>
+</plist>

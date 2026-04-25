@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME</key>
+	<string>AccentColor</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>FitTracker uses the camera to scan barcodes on food packaging and take photos of your meals.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Use Face ID to unlock FitTracker.</string>
+	<key>NSHealthShareUsageDescription</key>
+	<string>FitTracker reads bodyweight and active energy burned to calibrate your nutrition and workout tracking.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>FitTracker writes dietary intake and completed workouts so they appear in the Health app.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Attach photos of meals from your photo library.</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>FitTracker sends rest timer alerts and daily reminders.</string>
+</dict>
+</plist>
