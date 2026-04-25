@@ -154,4 +154,19 @@ final class MockServiceContainer {
     let programs = MockProgramsService()
     let exercises = MockExercisesService()
     let workouts = MockWorkoutService()
+
+    init() {
+        #if DEBUG
+        // Auto-login when the app is launched with `-uiAutoLogin carlos`.
+        // Used by Slice 0.5 simulator capture scripts to skip past the
+        // login screen for screenshotting deeper screens.
+        let args = ProcessInfo.processInfo.arguments
+        if let i = args.firstIndex(of: "-uiAutoLogin"), i + 1 < args.count {
+            let handle = args[i + 1]
+            if let user = MockData.testAccounts.first(where: { $0.email.hasPrefix(handle) || $0.displayName.lowercased() == handle.lowercased() }) {
+                auth.quickLogin(as: user)
+            }
+        }
+        #endif
+    }
 }
