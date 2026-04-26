@@ -8,21 +8,8 @@
 import SwiftUI
 
 struct AppRoot: View {
-    @Environment(MockServiceContainer.self) private var services
-
     var body: some View {
-        ZStack {
-            ThemedBackdrop()
-
-            if services.auth.isAuthenticated {
-                MainTabView()
-                    .transition(.opacity)
-            } else {
-                LoginView()
-                    .transition(.opacity)
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: services.auth.isAuthenticated)
+        AuthGate()
     }
 }
 

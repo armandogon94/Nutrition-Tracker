@@ -11,7 +11,7 @@ import SwiftUI
 @main
 struct FitTrackerApp: App {
     @State private var themeStore = ThemeStore()
-    @State private var services = MockServiceContainer()
+    @State private var services = FitTrackerApp.makeServiceContainer()
 
     var body: some Scene {
         WindowGroup {
@@ -19,6 +19,19 @@ struct FitTrackerApp: App {
                 .environment(themeStore)
                 .environment(services)
         }
+    }
+
+    /// Production wiring: real AuthService against APIClient + Keychain.
+    /// Pass `-useMockAuth` at launch to fall back to the mock (used by
+    /// Slice 0.5 design-review screenshots and preview-driven testing).
+    @MainActor
+    private static func makeServiceContainer() -> MockServiceContainer {
+        #if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("-useMockAuth") {
+            return MockServiceContainer()  // mock auth path
+        }
+        #endif
+        return MockServiceContainer(auth: AuthService())
     }
 }
 

@@ -28,9 +28,24 @@ final class MockAuthService: AuthServiceProtocol {
         isAuthenticated = true
     }
 
+    func signInWithApple(identityToken: String, userIdentifier: String, email: String?, fullName: PersonNameComponents?) async throws {
+        try await Task.sleep(nanoseconds: 200_000_000)
+        currentUser = MockUser(
+            id: UUID(),
+            email: email ?? "apple_\(userIdentifier)@fittracker.local",
+            displayName: fullName?.givenName ?? "Apple User",
+            createdAt: Date()
+        )
+        isAuthenticated = true
+    }
+
     func signOut() async {
         currentUser = nil
         isAuthenticated = false
+    }
+
+    func restoreSession() async {
+        // No persisted state in mock — already in correct state from init/quickLogin
     }
 
     /// Test convenience: skip the form, drop straight in.
@@ -145,7 +160,11 @@ final class MockWorkoutService: WorkoutServiceProtocol, @unchecked Sendable {
 @Observable
 @MainActor
 final class MockServiceContainer {
-    let auth = MockAuthService()
+    /// Auth is protocol-typed so production can inject the real
+    /// AuthService while previews + Slice 0.5 tap-through keep using
+    /// MockAuthService. Slices 2–8 will follow the same pattern as
+    /// each domain's concrete service lands.
+    let auth: any AuthServiceProtocol
     let nutrition = MockNutritionService()
     let products = MockProductsService()
     let meals = MockMealsService()
@@ -155,16 +174,22 @@ final class MockServiceContainer {
     let exercises = MockExercisesService()
     let workouts = MockWorkoutService()
 
-    init() {
+    init(auth: (any AuthServiceProtocol)? = nil) {
+        let resolvedAuth = auth ?? MockAuthService()
+        self.auth = resolvedAuth
+
         #if DEBUG
         // Auto-login when the app is launched with `-uiAutoLogin carlos`.
-        // Used by Slice 0.5 simulator capture scripts to skip past the
-        // login screen for screenshotting deeper screens.
+        // Used by simulator capture scripts to skip past the login screen.
+        // Only meaningful with MockAuthService (real auth needs a backend).
         let args = ProcessInfo.processInfo.arguments
-        if let i = args.firstIndex(of: "-uiAutoLogin"), i + 1 < args.count {
+        if let mock = resolvedAuth as? MockAuthService,
+           let i = args.firstIndex(of: "-uiAutoLogin"), i + 1 < args.count {
             let handle = args[i + 1]
-            if let user = MockData.testAccounts.first(where: { $0.email.hasPrefix(handle) || $0.displayName.lowercased() == handle.lowercased() }) {
-                auth.quickLogin(as: user)
+            if let user = MockData.testAccounts.first(where: {
+                $0.email.hasPrefix(handle) || $0.displayName.lowercased() == handle.lowercased()
+            }) {
+                mock.quickLogin(as: user)
             }
         }
         #endif

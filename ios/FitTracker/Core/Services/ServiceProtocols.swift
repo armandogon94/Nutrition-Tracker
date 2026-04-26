@@ -20,8 +20,12 @@ protocol AuthServiceProtocol: AnyObject {
     var currentUser: MockUser? { get }
     func login(email: String, password: String) async throws
     func register(email: String, password: String, displayName: String) async throws
+    func signInWithApple(identityToken: String, userIdentifier: String, email: String?, fullName: PersonNameComponents?) async throws
     func signOut() async
+    func restoreSession() async
 }
+
+import Foundation
 
 // MARK: - Nutrition
 
