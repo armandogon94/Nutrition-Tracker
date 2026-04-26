@@ -49,6 +49,28 @@ protocol MealsServiceProtocol: AnyObject, Sendable {
     func deleteItem(_ itemId: UUID, fromMeal mealId: UUID) async throws
 }
 
+/// Slice 3: extends MealsServiceProtocol with optimistic logging and a
+/// SwiftData-backed cache reader. Kept as a separate protocol so the
+/// Slice 0.5 mock surface stays minimal and ProductsServiceProtocol can
+/// be substituted in previews without dragging in SwiftData.
+protocol MealLoggingServiceProtocol: MealsServiceProtocol {
+    /// Optimistically inserts a MealItem locally (pendingSync=true) and
+    /// fires the backend POST in the background. Returns the freshly
+    /// inserted MealItem — view code uses it to update UI immediately,
+    /// long before the network round-trip resolves.
+    @MainActor
+    func logItem(product: Product,
+                 servings: Double,
+                 mealType: MealType,
+                 mealDate: Date,
+                 userId: UUID) async throws -> MealItem
+
+    /// Pulls today's meals from the local SwiftData cache. Always returns
+    /// quickly; does not hit the network.
+    @MainActor
+    func recentMeals(for date: Date, userId: UUID) async throws -> [Meal]
+}
+
 // MARK: - Meal Plan + Shopping List
 
 @MainActor

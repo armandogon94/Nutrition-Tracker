@@ -1,0 +1,97 @@
+//
+//  ProductServiceTests.swift
+//  Slice 3.1: validates the real ProductService against MockURLProtocol.
+//  We assert URL/path shape, query encoding, and DTO → Product mapping.
+//
+
+import Foundation
+import Testing
+@testable import FitTracker
+
+@Suite("ProductService", .serialized)
+struct ProductServiceTests {
+
+    init() { MockURLProtocol.reset() }
+
+    private func makeSUT() -> ProductService {
+        let session = MockURLProtocol.makeSession()
+        let api = APIClient(baseURL: URL(string: "http://test.local")!,
+                            tokenProvider: nil,
+                            session: session)
+        return ProductService(api: api)
+    }
+
+    private static let oatmealJSON = #"""
+    {
+      "id": "00000000-0000-0000-0000-000000000010",
+      "barcode": "7501055302345",
+      "name": "Avena tradicional",
+      "brand": "Quaker",
+      "serving_size_g": 40,
+      "calories_per_serving": 150,
+      "protein_g": 5,
+      "carbs_g": 27,
+      "fat_g": 3,
+      "fiber_g": 4,
+      "category": "Granos"
+    }
+    """#
+
+    private static let searchJSON = #"""
+    {"results":[\#(oatmealJSON)]}
+    """#
+
+    @Test("lookup(barcode:) hits /products/{barcode} and decodes")
+    func lookup_decodesProduct() async throws {
+        let sut = makeSUT()
+        MockURLProtocol.handler = { req in
+            #expect(req.url?.path.hasSuffix("/api/v1/products/7501055302345") == true)
+            return (Self.ok(req), Data(Self.oatmealJSON.utf8))
+        }
+
+        let product = try await sut.lookup(barcode: "7501055302345")
+        #expect(product?.name == "Avena tradicional")
+        #expect(product?.barcode == "7501055302345")
+        #expect(product?.caloriesPerServing == 150)
+    }
+
+    @Test("lookup(barcode:) returns nil on 404")
+    func lookup_returnsNilOnNotFound() async throws {
+        let sut = makeSUT()
+        MockURLProtocol.handler = { req in
+            (Self.notFound(req), Data())
+        }
+        let product = try await sut.lookup(barcode: "0000000000000")
+        #expect(product == nil)
+    }
+
+    @Test("search(query:) calls /products/search?q= and parses results")
+    func search_parsesResults() async throws {
+        let sut = makeSUT()
+        MockURLProtocol.handler = { req in
+            let url = req.url!
+            #expect(url.path.hasSuffix("/api/v1/products/search"))
+            let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "q" }?.value
+            #expect(q == "avena")
+            return (Self.ok(req), Data(Self.searchJSON.utf8))
+        }
+
+        let results = try await sut.search(query: "avena")
+        #expect(results.count == 1)
+        #expect(results.first?.brand == "Quaker")
+    }
+
+    // MARK: - Helpers
+
+    private static func ok(_ req: URLRequest) -> HTTPURLResponse {
+        HTTPURLResponse(url: req.url!, statusCode: 200,
+                        httpVersion: "HTTP/1.1",
+                        headerFields: ["Content-Type": "application/json"])!
+    }
+    private static func notFound(_ req: URLRequest) -> HTTPURLResponse {
+        HTTPURLResponse(url: req.url!, statusCode: 404,
+                        httpVersion: "HTTP/1.1",
+                        headerFields: nil)!
+    }
+}

@@ -60,3 +60,92 @@ struct AuthMeResponse: Codable, Sendable {
     let display_name: String
     let role: String?
 }
+
+// MARK: - Products (Slice 3)
+
+/// Mirrors `app/schemas/product.py:ProductResponse`. Snake_case keys map
+/// directly to the Pydantic schema; we keep the shape flat (no nested
+/// "nutrition" object) because the backend already flattened macros for
+/// the iOS contract during Slice 9.
+struct ProductDTO: Codable, Sendable, Hashable {
+    let id: String
+    let barcode: String?
+    let name: String
+    let brand: String?
+    let serving_size_g: Double
+    let calories_per_serving: Double
+    let protein_g: Double
+    let carbs_g: Double
+    let fat_g: Double
+    let fiber_g: Double
+    let category: String
+}
+
+struct ProductSearchResponse: Codable, Sendable {
+    let results: [ProductDTO]
+}
+
+// MARK: - Meals (Slice 3)
+
+/// Mirrors `app/schemas/meal.py:MealItemResponse`. Backend always returns
+/// the snapshot fields (calories/macros) so we can reconstruct the row
+/// even if the underlying product is later deleted.
+struct MealItemDTO: Codable, Sendable, Hashable {
+    let id: String
+    let product_id: String?
+    let product_name: String
+    let brand: String?
+    let servings: Double
+    let calories: Double
+    let protein_g: Double
+    let carbs_g: Double
+    let fat_g: Double
+}
+
+struct MealDTO: Codable, Sendable, Hashable {
+    let id: String
+    let user_id: String
+    let meal_type: String
+    let meal_date: Date
+    let items: [MealItemDTO]
+}
+
+struct MealsListResponse: Codable, Sendable {
+    let meals: [MealDTO]
+}
+
+/// POST /api/v1/meals/log — single line item logged into (or creating)
+/// today's meal of the given type. Backend creates the parent Meal row
+/// implicitly if one does not already exist for `meal_type` on
+/// `meal_date` for the authenticated user.
+struct LogMealItemRequest: Codable, Sendable {
+    let meal_type: String
+    let meal_date: Date
+    let product_id: String?
+    let product_name: String
+    let brand: String?
+    let servings: Double
+    let calories: Double
+    let protein_g: Double
+    let carbs_g: Double
+    let fat_g: Double
+    /// Optional client-generated identifier so the backend can dedupe
+    /// retried writes from the offline queue.
+    let client_item_id: String?
+}
+
+// MARK: - Vision (Slice 3.5)
+
+/// Response from POST /api/v1/nutrition/recognize. Backend wraps the
+/// Claude Vision call so we never expose the Anthropic API key on
+/// device. Confidence is a free-form string ("high"/"medium"/"low") to
+/// stay loose with model outputs.
+struct VisionRecognitionResponse: Codable, Sendable, Hashable {
+    let food: String
+    let grams: Double
+    let confidence: String
+    let calories: Double?
+    let protein_g: Double?
+    let carbs_g: Double?
+    let fat_g: Double?
+}
