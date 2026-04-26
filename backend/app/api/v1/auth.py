@@ -1,12 +1,13 @@
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.deps import get_current_user
+from app.core.rate_limit import limiter
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -39,7 +40,10 @@ def _access_token_for(user: User) -> tuple[str, int]:
 
 
 @router.post("/register", response_model=TokenResponse, status_code=201)
-async def register(data: UserRegister, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+@limiter.limit("3/minute")
+async def register(
+    request: Request, data: UserRegister, db: AsyncSession = Depends(get_db)
+) -> TokenResponse:
     """Register a new user account and return an access + refresh pair."""
     result = await db.execute(select(User).where(User.email == data.email))
     if result.scalar_one_or_none():
@@ -66,7 +70,10 @@ async def register(data: UserRegister, db: AsyncSession = Depends(get_db)) -> To
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(data: UserLogin, db: AsyncSession = Depends(get_db)) -> TokenResponse:
+@limiter.limit("5/minute")
+async def login(
+    request: Request, data: UserLogin, db: AsyncSession = Depends(get_db)
+) -> TokenResponse:
     """Login with email + password, returning an access + refresh pair."""
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
@@ -103,8 +110,11 @@ def _display_name_from(req: AppleSigninRequest, fallback: str) -> str:
 
 
 @router.post("/apple", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def sign_in_with_apple(
-    data: AppleSigninRequest, db: AsyncSession = Depends(get_db)
+    request: Request,
+    data: AppleSigninRequest,
+    db: AsyncSession = Depends(get_db),
 ) -> TokenResponse:
     """Verify an Apple identity token and upsert a user keyed by Apple user id.
 
@@ -165,8 +175,11 @@ async def sign_in_with_apple(
 
 
 @router.post("/refresh", response_model=RefreshResponse)
+@limiter.limit("10/minute")
 async def refresh(
-    data: RefreshRequest, db: AsyncSession = Depends(get_db)
+    request: Request,
+    data: RefreshRequest,
+    db: AsyncSession = Depends(get_db),
 ) -> RefreshResponse:
     """Exchange a valid refresh token for a fresh access + refresh pair.
 

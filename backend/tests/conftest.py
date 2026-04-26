@@ -57,6 +57,26 @@ async def clean_tables(setup_db):
         await session.commit()
 
 
+@pytest.fixture(autouse=True)
+def _reset_rate_limiter():
+    """Slice 9.8: clear in-memory rate-limit storage between tests so the
+    `testclient` IP doesn't accumulate counts across the suite."""
+    from app.core.rate_limit import limiter
+
+    def _clear():
+        try:
+            limiter.reset()
+        except Exception:
+            storage = getattr(limiter, "_storage", None)
+            inner = getattr(storage, "storage", None)
+            if isinstance(inner, dict):
+                inner.clear()
+
+    _clear()
+    yield
+    _clear()
+
+
 @pytest.fixture
 async def client():
     """HTTP test client."""
