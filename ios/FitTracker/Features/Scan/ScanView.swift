@@ -168,8 +168,9 @@ struct ScanView: View {
         guard let userId = services.auth.currentUser?.id else { return }
         let mealService = MealService(api: APIClient(tokenProvider: KeychainTokenStore.shared),
                                        context: modelContext)
+        var loggedItem: MealItem?
         do {
-            _ = try await mealService.logItem(
+            loggedItem = try await mealService.logItem(
                 product: product,
                 servings: servings,
                 mealType: mealType,
@@ -180,6 +181,14 @@ struct ScanView: View {
         } catch {
             // Optimistic write succeeded locally; banner notes pending sync.
             withAnimation { statusBanner = String(localized: "meals_log_saved_offline") }
+        }
+        // Mirror to Apple Health (best-effort; HealthKit failure must
+        // never block meal-log UX). HealthKitService dedupes on its
+        // ExternalUUID so re-runs are safe.
+        if let item = loggedItem {
+            Task { @MainActor in
+                _ = try? await HealthKitService.shared.writeMealEntry(item)
+            }
         }
         Task {
             try? await Task.sleep(nanoseconds: 2_500_000_000)

@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import SwiftData
 
 @main
 struct FitTrackerApp: App {
@@ -18,6 +19,9 @@ struct FitTrackerApp: App {
             ThemedRootView()
                 .environment(themeStore)
                 .environment(services)
+                // Slice 3.7: install the SwiftData container so any view
+                // using @Query / @Environment(\.modelContext) works.
+                .modelContainer(PersistenceController.live.container)
         }
     }
 

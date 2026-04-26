@@ -529,6 +529,23 @@
         }
       }
     },
+    "meals_title" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Comidas"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Meals"
+          }
+        }
+      }
+    },
     "meals_today" : {
       "extractionState" : "manual",
       "localizations" : {

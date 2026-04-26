@@ -1,15 +1,33 @@
 //
 //  MealsListView.swift
-//  Slice 0.5 mock — meals grouped by type with totals.
+//  Slice 3.7: today's meals grouped by type. Reads MealEntity straight
+//  out of SwiftData via @Query, sorted by mealDate. When the store is
+//  empty (typically: fresh install before first scan) we fall back to
+//  the Slice 0.5 mock data so previews and TestFlight reviewers don't
+//  see a stark empty state.
 //
 
 import SwiftUI
+import SwiftData
 
 struct MealsListView: View {
     @Environment(\.appTheme) private var theme
     @Environment(MockServiceContainer.self) private var services
+    @Environment(\.modelContext) private var modelContext
 
-    @State private var meals: [Meal] = []
+    @Query(sort: \MealEntity.mealDate, order: .forward)
+    private var entities: [MealEntity]
+
+    /// Snapshot of struct-shaped meals for rendering. Computed from
+    /// either the @Query results (real data) or the Slice 0.5 mock.
+    private var meals: [Meal] {
+        let today = Calendar(identifier: .iso8601).startOfDay(for: .now)
+        let tomorrow = Calendar(identifier: .iso8601).date(byAdding: .day, value: 1, to: today) ?? Date()
+        let local = entities
+            .filter { $0.mealDate >= today && $0.mealDate < tomorrow }
+            .map(Meal.init(from:))
+        return local.isEmpty ? MockData.meals : local
+    }
 
     var body: some View {
         ZStack {
@@ -29,8 +47,7 @@ struct MealsListView: View {
             }
             .scrollContentBackground(.hidden)
         }
-        .navigationTitle("Comidas")
-        .task { meals = (try? await services.meals.mealsToday()) ?? [] }
+        .navigationTitle(Text("meals_title"))
     }
 
     private func mealCard(_ meal: Meal) -> some View {
@@ -90,7 +107,7 @@ struct MealsListView: View {
                 Text(type.label)
                     .font(theme.font.bodyMedium)
                     .foregroundStyle(theme.textSecondary)
-                Text("Sin registrar")
+                Text("meals_unregistered")
                     .font(theme.font.caption)
                     .foregroundStyle(theme.textTertiary)
             }
