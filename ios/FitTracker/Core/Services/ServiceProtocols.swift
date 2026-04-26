@@ -29,7 +29,8 @@ import Foundation
 
 // MARK: - Nutrition
 
-protocol NutritionServiceProtocol: AnyObject, Sendable {
+@MainActor
+protocol NutritionServiceProtocol: AnyObject {
     func dailyNutrition(for date: Date) async throws -> DailyNutrition
     func meals(for date: Date) async throws -> [Meal]
     func currentGoal() async throws -> NutritionGoal
