@@ -15,6 +15,7 @@ struct LoginView: View {
     @State private var password = ""
     @State private var isSubmitting = false
     @State private var errorText: String?
+    @State private var appleCoordinator = AppleIDCoordinator()
 
     var body: some View {
         ScrollView {
@@ -116,8 +117,7 @@ struct LoginView: View {
 
     private var appleButton: some View {
         Button {
-            // Slice 1 will route through ASAuthorizationController.
-            errorText = "Sign in with Apple llega en Slice 1"
+            Task { await signInWithApple() }
         } label: {
             HStack(spacing: 8) {
                 Image(systemName: "applelogo")
@@ -131,6 +131,27 @@ struct LoginView: View {
                 Capsule()
                     .stroke(theme.textTertiary.opacity(0.3), lineWidth: 1)
             )
+        }
+        .disabled(isSubmitting)
+    }
+
+    @MainActor
+    private func signInWithApple() async {
+        errorText = nil
+        do {
+            let cred = try await appleCoordinator.requestSignIn()
+            isSubmitting = true
+            defer { isSubmitting = false }
+            try await services.auth.signInWithApple(
+                identityToken: cred.identityToken,
+                userIdentifier: cred.userIdentifier,
+                email: cred.email,
+                fullName: cred.fullName
+            )
+        } catch AppleIDError.userCancelled {
+            // Silent — user closed the sheet
+        } catch {
+            errorText = error.localizedDescription
         }
     }
 
