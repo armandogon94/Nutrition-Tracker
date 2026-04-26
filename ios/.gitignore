@@ -24,6 +24,9 @@ fastlane/test_output
 
 # macOS
 .DS_Store
+# Finder duplicate files (e.g. "FitTrackerApp 2.swift")
+* 2.*
+*\ 2
 
 # Environment
 *.env
