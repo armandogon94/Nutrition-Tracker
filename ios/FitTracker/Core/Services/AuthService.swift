@@ -32,9 +32,11 @@ final class AuthService: AuthServiceProtocol {
     /// trip per refresh window. See ADR-0003.
     private var inFlightRefresh: Task<String, Error>?
 
-    init(api: APIClient = APIClient(), keychain: KeychainTokenStore = .shared) {
-        self.api = api
+    init(api: APIClient? = nil, keychain: KeychainTokenStore = .shared) {
         self.keychain = keychain
+        // The APIClient must read tokens from the same Keychain so its
+        // Bearer header reflects whatever AuthService just persisted.
+        self.api = api ?? APIClient(tokenProvider: keychain)
         // Initial state: trust the Keychain. AuthGate calls
         // restoreSession() on first appear, which hydrates currentUser
         // and falls back to login if the refresh fails.

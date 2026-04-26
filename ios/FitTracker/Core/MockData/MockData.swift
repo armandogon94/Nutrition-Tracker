@@ -28,18 +28,21 @@ enum MockData {
 
     static let user = MockUser(
         id: _carlosID,
-        email: "carlos@fittracker.dev",
+        email: "test1@fittracker.dev",
         displayName: "Carlos",
         createdAt: Date(timeIntervalSince1970: 1_770_000_000)
     )
 
+    /// Quick-pick buttons in LoginView use these. Emails MUST match the
+    /// backend's `seed_test_accounts.py` so production-mode login finds
+    /// the seeded users. Password for all three: test1234.
     static let testAccounts: [MockUser] = [
         user,
         MockUser(id: UUID(uuidString: "00000000-0000-0000-0000-000000C00002")!,
-                 email: "maria@fittracker.dev", displayName: "María",
+                 email: "test2@fittracker.dev", displayName: "María",
                  createdAt: Date(timeIntervalSince1970: 1_770_000_000)),
         MockUser(id: UUID(uuidString: "00000000-0000-0000-0000-000000C00003")!,
-                 email: "roberto@fittracker.dev", displayName: "Roberto",
+                 email: "test3@fittracker.dev", displayName: "Roberto",
                  createdAt: Date(timeIntervalSince1970: 1_770_000_000))
     ]
 
