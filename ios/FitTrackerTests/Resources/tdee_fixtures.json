@@ -1,0 +1,692 @@
+{
+  "version": 1,
+  "source": "backend.app.services.tdee_calculator",
+  "tolerance_kcal": 0.5,
+  "case_count": 38,
+  "cases": [
+    {
+      "input": {
+        "weight_kg": 40.0,
+        "height_cm": 150.0,
+        "age": 30,
+        "sex": "female",
+        "activity_level": "sedentary",
+        "goal_preset": "fat_loss"
+      },
+      "expected": {
+        "bmr": 1026.5,
+        "tdee": 1231.8,
+        "daily_calories": 1200,
+        "daily_protein_g": 80,
+        "daily_fat_g": 33,
+        "daily_carbs_g": 145
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 40.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "female",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1182.75,
+        "tdee": 1833.2625,
+        "daily_calories": 1833,
+        "daily_protein_g": 80,
+        "daily_fat_g": 50,
+        "daily_carbs_g": 263
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 150.0,
+        "age": 30,
+        "sex": "female",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1426.5,
+        "tdee": 2211.0750000000003,
+        "daily_calories": 2211,
+        "daily_protein_g": 160,
+        "daily_fat_g": 61,
+        "daily_carbs_g": 254
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "female",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1582.75,
+        "tdee": 2453.2625000000003,
+        "daily_calories": 2453,
+        "daily_protein_g": 160,
+        "daily_fat_g": 68,
+        "daily_carbs_g": 299
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "female",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1582.75,
+        "tdee": 2453.2625000000003,
+        "daily_calories": 2453,
+        "daily_protein_g": 160,
+        "daily_fat_g": 68,
+        "daily_carbs_g": 299
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 200.0,
+        "age": 30,
+        "sex": "female",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1739.0,
+        "tdee": 2695.4500000000003,
+        "daily_calories": 2695,
+        "daily_protein_g": 160,
+        "daily_fat_g": 74,
+        "daily_carbs_g": 345
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 120.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "female",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1982.75,
+        "tdee": 3073.2625000000003,
+        "daily_calories": 3073,
+        "daily_protein_g": 240,
+        "daily_fat_g": 85,
+        "daily_carbs_g": 336
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 40.0,
+        "height_cm": 150.0,
+        "age": 60,
+        "sex": "female",
+        "activity_level": "sedentary",
+        "goal_preset": "fat_loss"
+      },
+      "expected": {
+        "bmr": 876.5,
+        "tdee": 1051.8,
+        "daily_calories": 1200,
+        "daily_protein_g": 80,
+        "daily_fat_g": 33,
+        "daily_carbs_g": 145
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 40.0,
+        "height_cm": 150.0,
+        "age": 60,
+        "sex": "female",
+        "activity_level": "sedentary",
+        "goal_preset": "lean_bulk"
+      },
+      "expected": {
+        "bmr": 876.5,
+        "tdee": 1051.8,
+        "daily_calories": 1301,
+        "daily_protein_g": 80,
+        "daily_fat_g": 36,
+        "daily_carbs_g": 164
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 40.0,
+        "height_cm": 150.0,
+        "age": 60,
+        "sex": "female",
+        "activity_level": "sedentary",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 876.5,
+        "tdee": 1051.8,
+        "daily_calories": 1200,
+        "daily_protein_g": 80,
+        "daily_fat_g": 33,
+        "daily_carbs_g": 145
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 40.0,
+        "height_cm": 150.0,
+        "age": 60,
+        "sex": "female",
+        "activity_level": "sedentary",
+        "goal_preset": "muscle_gain"
+      },
+      "expected": {
+        "bmr": 876.5,
+        "tdee": 1051.8,
+        "daily_calories": 1551,
+        "daily_protein_g": 80,
+        "daily_fat_g": 43,
+        "daily_carbs_g": 210
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 13,
+        "sex": "male",
+        "activity_level": "active",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1833.75,
+        "tdee": 3163.21875,
+        "daily_calories": 3163,
+        "daily_protein_g": 160,
+        "daily_fat_g": 87,
+        "daily_carbs_g": 433
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 13,
+        "sex": "male",
+        "activity_level": "light",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1833.75,
+        "tdee": 2521.40625,
+        "daily_calories": 2521,
+        "daily_protein_g": 160,
+        "daily_fat_g": 70,
+        "daily_carbs_g": 312
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 13,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1833.75,
+        "tdee": 2842.3125,
+        "daily_calories": 2842,
+        "daily_protein_g": 160,
+        "daily_fat_g": 78,
+        "daily_carbs_g": 372
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 13,
+        "sex": "male",
+        "activity_level": "sedentary",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1833.75,
+        "tdee": 2200.5,
+        "daily_calories": 2200,
+        "daily_protein_g": 160,
+        "daily_fat_g": 61,
+        "daily_carbs_g": 252
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 13,
+        "sex": "male",
+        "activity_level": "very_active",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1833.75,
+        "tdee": 3484.125,
+        "daily_calories": 3484,
+        "daily_protein_g": 160,
+        "daily_fat_g": 96,
+        "daily_carbs_g": 493
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 40.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1348.75,
+        "tdee": 2090.5625,
+        "daily_calories": 2090,
+        "daily_protein_g": 80,
+        "daily_fat_g": 58,
+        "daily_carbs_g": 311
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 150.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1592.5,
+        "tdee": 2468.375,
+        "daily_calories": 2468,
+        "daily_protein_g": 160,
+        "daily_fat_g": 68,
+        "daily_carbs_g": 302
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "active",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1748.75,
+        "tdee": 3016.59375,
+        "daily_calories": 3016,
+        "daily_protein_g": 160,
+        "daily_fat_g": 83,
+        "daily_carbs_g": 405
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "light",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1748.75,
+        "tdee": 2404.53125,
+        "daily_calories": 2404,
+        "daily_protein_g": 160,
+        "daily_fat_g": 66,
+        "daily_carbs_g": 290
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1748.75,
+        "tdee": 2710.5625,
+        "daily_calories": 2710,
+        "daily_protein_g": 160,
+        "daily_fat_g": 75,
+        "daily_carbs_g": 348
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1748.75,
+        "tdee": 2710.5625,
+        "daily_calories": 2710,
+        "daily_protein_g": 160,
+        "daily_fat_g": 75,
+        "daily_carbs_g": 348
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1748.75,
+        "tdee": 2710.5625,
+        "daily_calories": 2710,
+        "daily_protein_g": 160,
+        "daily_fat_g": 75,
+        "daily_carbs_g": 348
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "sedentary",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1748.75,
+        "tdee": 2098.5,
+        "daily_calories": 2098,
+        "daily_protein_g": 160,
+        "daily_fat_g": 58,
+        "daily_carbs_g": 233
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "very_active",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1748.75,
+        "tdee": 3322.625,
+        "daily_calories": 3322,
+        "daily_protein_g": 160,
+        "daily_fat_g": 92,
+        "daily_carbs_g": 462
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 180.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1780.0,
+        "tdee": 2759.0,
+        "daily_calories": 2759,
+        "daily_protein_g": 160,
+        "daily_fat_g": 76,
+        "daily_carbs_g": 357
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 200.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1905.0,
+        "tdee": 2952.75,
+        "daily_calories": 2952,
+        "daily_protein_g": 160,
+        "daily_fat_g": 82,
+        "daily_carbs_g": 393
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 120.0,
+        "height_cm": 175.0,
+        "age": 30,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 2148.75,
+        "tdee": 3330.5625,
+        "daily_calories": 3330,
+        "daily_protein_g": 240,
+        "daily_fat_g": 92,
+        "daily_carbs_g": 384
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 60,
+        "sex": "male",
+        "activity_level": "active",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1598.75,
+        "tdee": 2757.84375,
+        "daily_calories": 2757,
+        "daily_protein_g": 160,
+        "daily_fat_g": 76,
+        "daily_carbs_g": 357
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 60,
+        "sex": "male",
+        "activity_level": "light",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1598.75,
+        "tdee": 2198.28125,
+        "daily_calories": 2198,
+        "daily_protein_g": 160,
+        "daily_fat_g": 61,
+        "daily_carbs_g": 252
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 60,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1598.75,
+        "tdee": 2478.0625,
+        "daily_calories": 2478,
+        "daily_protein_g": 160,
+        "daily_fat_g": 68,
+        "daily_carbs_g": 304
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 60,
+        "sex": "male",
+        "activity_level": "sedentary",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1598.75,
+        "tdee": 1918.5,
+        "daily_calories": 1918,
+        "daily_protein_g": 160,
+        "daily_fat_g": 53,
+        "daily_carbs_g": 199
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 60,
+        "sex": "male",
+        "activity_level": "very_active",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1598.75,
+        "tdee": 3037.625,
+        "daily_calories": 3037,
+        "daily_protein_g": 160,
+        "daily_fat_g": 84,
+        "daily_carbs_g": 409
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 120,
+        "sex": "male",
+        "activity_level": "active",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1298.75,
+        "tdee": 2240.34375,
+        "daily_calories": 2240,
+        "daily_protein_g": 160,
+        "daily_fat_g": 62,
+        "daily_carbs_g": 260
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 120,
+        "sex": "male",
+        "activity_level": "light",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1298.75,
+        "tdee": 1785.78125,
+        "daily_calories": 1785,
+        "daily_protein_g": 160,
+        "daily_fat_g": 49,
+        "daily_carbs_g": 174
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 120,
+        "sex": "male",
+        "activity_level": "moderate",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1298.75,
+        "tdee": 2013.0625,
+        "daily_calories": 2013,
+        "daily_protein_g": 160,
+        "daily_fat_g": 55,
+        "daily_carbs_g": 217
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 120,
+        "sex": "male",
+        "activity_level": "sedentary",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1298.75,
+        "tdee": 1558.5,
+        "daily_calories": 1558,
+        "daily_protein_g": 160,
+        "daily_fat_g": 43,
+        "daily_carbs_g": 132
+      }
+    },
+    {
+      "input": {
+        "weight_kg": 80.0,
+        "height_cm": 175.0,
+        "age": 120,
+        "sex": "male",
+        "activity_level": "very_active",
+        "goal_preset": "maintenance"
+      },
+      "expected": {
+        "bmr": 1298.75,
+        "tdee": 2467.625,
+        "daily_calories": 2467,
+        "daily_protein_g": 160,
+        "daily_fat_g": 68,
+        "daily_carbs_g": 302
+      }
+    }
+  ]
+}

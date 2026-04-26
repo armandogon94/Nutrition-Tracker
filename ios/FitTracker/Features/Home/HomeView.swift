@@ -12,6 +12,7 @@ struct HomeView: View {
     @State private var nutrition: DailyNutrition?
     @State private var goal: NutritionGoal?
     @State private var meals: [Meal] = []
+    @State private var isRefreshing = false
 
     var body: some View {
         ScrollView {
@@ -26,13 +27,27 @@ struct HomeView: View {
         }
         .scrollContentBackground(.hidden)
         .background(ThemedBackdrop())
-        .navigationTitle("Hola, \(services.auth.currentUser?.displayName ?? "")")
+        .navigationTitle(navTitle)
         .toolbarBackground(.hidden, for: .navigationBar)
-        .task {
-            nutrition = try? await services.nutrition.dailyNutrition(for: Date())
-            goal = try? await services.nutrition.currentGoal()
-            meals = (try? await services.meals.mealsToday()) ?? []
-        }
+        .refreshable { await load() }
+        .task { await load() }
+    }
+
+    private var navTitle: String {
+        let name = services.auth.currentUser?.displayName.components(separatedBy: " ").first ?? ""
+        return name.isEmpty ? "Inicio" : "Hola, \(name)"
+    }
+
+    @MainActor
+    private func load() async {
+        isRefreshing = true
+        defer { isRefreshing = false }
+        async let nutritionResult: DailyNutrition? = services.nutrition.dailyNutrition(for: Date())
+        async let goalResult: NutritionGoal? = services.nutrition.currentGoal()
+        async let mealsResult: [Meal] = services.nutrition.meals(for: Date())
+        nutrition = try? await nutritionResult
+        goal = try? await goalResult
+        meals = (try? await mealsResult) ?? []
     }
 
     private var heroCard: some View {

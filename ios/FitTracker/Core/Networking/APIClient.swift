@@ -89,6 +89,15 @@ actor APIClient {
         return try await perform(req)
     }
 
+    /// PUT Encodable body decoded to `T`. Symmetrical to `post`; added for
+    /// Slice 5 (`PUT /api/v1/nutrition/goals`).
+    func put<T: Decodable & Sendable, B: Encodable & Sendable>(
+        _ path: String, body: B
+    ) async throws -> T {
+        let req = try buildRequest(path: path, method: "PUT", query: [:], body: body)
+        return try await perform(req)
+    }
+
     /// DELETE no content.
     func delete(_ path: String) async throws {
         let req = try buildRequest(path: path, method: "DELETE", query: [:], body: nil as EmptyBody?)
