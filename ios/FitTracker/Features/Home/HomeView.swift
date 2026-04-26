@@ -1,9 +1,12 @@
 //
 //  HomeView.swift
-//  Slice 0.5 mock — hero calories card with macro rings, today's meals.
+//  Slice 3.7: hero calories card + today's meals from SwiftData (with a
+//  Slice 0.5 mock fallback for fresh installs / previews). Adds the
+//  "Registrar comida" FAB that routes into ScanView.
 //
 
 import SwiftUI
+import SwiftData
 
 struct HomeView: View {
     @Environment(\.appTheme) private var theme
@@ -11,26 +14,47 @@ struct HomeView: View {
 
     @State private var nutrition: DailyNutrition?
     @State private var goal: NutritionGoal?
-    @State private var meals: [Meal] = []
+    @State private var showScan = false
     @State private var isRefreshing = false
 
+    @Query(sort: \MealEntity.mealDate, order: .forward)
+    private var entities: [MealEntity]
+
+    /// Today's meals — pulled from SwiftData when there are any rows
+    /// for this calendar day, otherwise the Slice 0.5 mock so the home
+    /// screen never looks empty during onboarding.
+    private var meals: [Meal] {
+        let today = Calendar(identifier: .iso8601).startOfDay(for: .now)
+        let tomorrow = Calendar(identifier: .iso8601).date(byAdding: .day, value: 1, to: today) ?? Date()
+        let local = entities
+            .filter { $0.mealDate >= today && $0.mealDate < tomorrow }
+            .map(Meal.init(from:))
+        return local.isEmpty ? MockData.meals : local
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                heroCard
-                statRow
-                recentMealsCard
-                Spacer(minLength: 60)
+        ZStack(alignment: .bottomTrailing) {
+            ScrollView {
+                VStack(spacing: 16) {
+                    heroCard
+                    statRow
+                    recentMealsCard
+                    Spacer(minLength: 60)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .scrollContentBackground(.hidden)
+            .background(ThemedBackdrop())
+            logMealFAB
         }
-        .scrollContentBackground(.hidden)
-        .background(ThemedBackdrop())
         .navigationTitle(navTitle)
         .toolbarBackground(.hidden, for: .navigationBar)
         .refreshable { await load() }
         .task { await load() }
+        .sheet(isPresented: $showScan) {
+            NavigationStack { ScanView() }
+        }
     }
 
     private var navTitle: String {
@@ -42,12 +66,28 @@ struct HomeView: View {
     private func load() async {
         isRefreshing = true
         defer { isRefreshing = false }
+        // Meals come from @Query so we don't refetch via the service.
         async let nutritionResult: DailyNutrition? = services.nutrition.dailyNutrition(for: Date())
         async let goalResult: NutritionGoal? = services.nutrition.currentGoal()
-        async let mealsResult: [Meal] = services.nutrition.meals(for: Date())
         nutrition = try? await nutritionResult
         goal = try? await goalResult
-        meals = (try? await mealsResult) ?? []
+    }
+
+    private var logMealFAB: some View {
+        Button {
+            showScan = true
+        } label: {
+            Label {
+                Text("meals_log_meal_fab")
+                    .font(theme.font.bodyMedium)
+            } icon: {
+                Image(systemName: "barcode.viewfinder")
+            }
+            .padding(.horizontal, 18).padding(.vertical, 12)
+            .background(theme.accent, in: Capsule())
+            .foregroundStyle(.white)
+        }
+        .padding(20)
     }
 
     private var heroCard: some View {

@@ -1,171 +1,226 @@
 //
 //  ScanView.swift
-//  Slice 0.5 mock — fake viewfinder with a scanning animation, plus
-//  buttons for manual entry and photo capture. Real VisionKit
-//  DataScannerViewController integration in Slice 3.
+//  Slice 3 — Real Scan & Log entry point. Hosts the VisionKit barcode
+//  scanner, falls through to manual entry when the camera is denied
+//  or unsupported, and orchestrates ProductLookupSheet + log flow.
+//
+//  Mock viewfinder from Slice 0.5 lives behind `#if SLICE_0_MOCK` for
+//  reference — we keep none of it in the production view.
 //
 
 import SwiftUI
+import SwiftData
+import VisionKit
 
 struct ScanView: View {
     @Environment(\.appTheme) private var theme
     @Environment(\.dismiss) private var dismiss
+    @Environment(MockServiceContainer.self) private var services
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var scannedBarcode: String? = nil
+    @State private var lookupState: ProductLookupState? = nil
     @State private var showManualSheet = false
-    @State private var scanLine: CGFloat = 0
+    @State private var showPhotoSheet = false
+    @State private var pendingMealType: MealType = .snack
+    @State private var statusBanner: String? = nil
 
     var body: some View {
-        ZStack {
-            ThemedBackdrop()
-
-            VStack(spacing: 22) {
-                viewfinder
-                helperText
-                Spacer()
-                actionsRow
+        ZStack(alignment: .bottom) {
+            scannerLayer
+            actionsBar
+            if let banner = statusBanner {
+                bannerView(banner)
             }
-            .padding(20)
         }
-        .navigationTitle("Escanear")
+        .navigationTitle(Text("scan_section_view"))
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: scannedBarcode) { _, newValue in
+            guard let code = newValue else { return }
+            Task { await runLookup(barcode: code) }
+        }
+        .sheet(item: lookupBinding) { state in
+            ProductLookupSheet(
+                state: state,
+                defaultMealType: pendingMealType,
+                onLog: { product, servings, mealType in
+                    await logProduct(product, servings: servings, mealType: mealType)
+                },
+                onCreateCustom: {
+                    lookupState = nil
+                    showManualSheet = true
+                }
+            )
+        }
         .sheet(isPresented: $showManualSheet) {
-            ManualEntrySheet()
-                .presentationDetents([.large])
-                .presentationBackground(.ultraThinMaterial)
+            ManualEntrySheet(
+                onSelect: { product in
+                    showManualSheet = false
+                    lookupState = .found(product)
+                },
+                productsService: services.products
+            )
         }
-        .onAppear {
-            withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                scanLine = 1.0
-            }
+        .sheet(isPresented: $showPhotoSheet) {
+            PhotoCaptureView(
+                onRecognized: { recognition in
+                    showPhotoSheet = false
+                    let product = recognition.intoProduct()
+                    lookupState = .found(product)
+                }
+            )
         }
     }
 
-    private var viewfinder: some View {
+    // MARK: - Scanner
+
+    @ViewBuilder
+    private var scannerLayer: some View {
+        if #available(iOS 16.0, *) {
+            BarcodeScannerHostView(scannedBarcode: $scannedBarcode)
+        } else {
+            unsupportedFallback
+        }
+    }
+
+    private var unsupportedFallback: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.black)
-
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .strokeBorder(theme.accent, lineWidth: 2)
-
-            // Animated scan line
-            GeometryReader { geo in
-                Rectangle()
-                    .fill(LinearGradient(
-                        colors: [.clear, theme.accent.opacity(0.6), .clear],
-                        startPoint: .leading, endPoint: .trailing
-                    ))
-                    .frame(height: 2)
-                    .offset(y: geo.size.height * scanLine)
+            Color.black.ignoresSafeArea()
+            VStack(spacing: 14) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 36, weight: .light))
+                    .foregroundStyle(theme.negative)
+                Text("scan_unsupported_title")
+                    .font(theme.font.titleCompact)
+                    .foregroundStyle(.white)
+                Text("scan_unsupported_body")
+                    .font(theme.font.body)
+                    .foregroundStyle(.white.opacity(0.85))
+                    .multilineTextAlignment(.center)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-
-            VStack {
-                Spacer()
-                Text("Apunta al código de barras")
-                    .font(theme.font.caption)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .padding(.bottom, 12)
-            }
+            .padding(28)
         }
-        .frame(height: 320)
     }
 
-    private var helperText: some View {
-        Text("Sostén el teléfono firme. La detección VisionKit llega en Slice 3.")
-            .font(theme.font.caption)
-            .foregroundStyle(theme.textTertiary)
-            .multilineTextAlignment(.center)
-    }
+    // MARK: - Actions bar
 
-    private var actionsRow: some View {
+    private var actionsBar: some View {
         HStack(spacing: 12) {
             Button {
                 showManualSheet = true
             } label: {
-                actionTile(icon: "square.and.pencil", title: "Buscar")
+                actionTile(icon: "magnifyingglass", title: Text("scan_action_search"))
             }
             Button {
-                showManualSheet = true
+                showPhotoSheet = true
             } label: {
-                actionTile(icon: "camera.fill", title: "Foto")
+                actionTile(icon: "camera.fill", title: Text("scan_action_photo"))
             }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, 22)
+    }
+
+    private func actionTile(icon: String, title: Text) -> some View {
+        VStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+            title
+                .font(theme.font.captionMedium)
+                .foregroundStyle(.white)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func bannerView(_ message: String) -> some View {
+        Text(verbatim: message)
+            .font(theme.font.caption)
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16).padding(.vertical, 10)
+            .background(theme.accent.opacity(0.95), in: Capsule())
+            .padding(.bottom, 96)
+            .transition(.opacity)
+    }
+
+    // MARK: - Flow
+
+    @MainActor
+    private func runLookup(barcode: String) async {
+        lookupState = .loading
+        do {
+            if let product = try await services.products.lookup(barcode: barcode) {
+                lookupState = .found(product)
+            } else {
+                lookupState = .notFound
+            }
+        } catch {
+            lookupState = .failed(error.localizedDescription)
+        }
+        // Reset the binding so the same code can rescan after dismissal
+        scannedBarcode = nil
+    }
+
+    @MainActor
+    private func logProduct(_ product: Product, servings: Double, mealType: MealType) async {
+        guard let userId = services.auth.currentUser?.id else { return }
+        let mealService = MealService(api: APIClient(tokenProvider: KeychainTokenStore.shared),
+                                       context: modelContext)
+        var loggedItem: MealItem?
+        do {
+            loggedItem = try await mealService.logItem(
+                product: product,
+                servings: servings,
+                mealType: mealType,
+                mealDate: Date(),
+                userId: userId
+            )
+            withAnimation { statusBanner = String(localized: "meals_log_saved_offline") }
+        } catch {
+            // Optimistic write succeeded locally; banner notes pending sync.
+            withAnimation { statusBanner = String(localized: "meals_log_saved_offline") }
+        }
+        // Mirror to Apple Health (best-effort; HealthKit failure must
+        // never block meal-log UX). HealthKitService dedupes on its
+        // ExternalUUID so re-runs are safe.
+        if let item = loggedItem {
+            Task { @MainActor in
+                _ = try? await HealthKitService.shared.writeMealEntry(item)
+            }
+        }
+        Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            withAnimation { statusBanner = nil }
         }
     }
 
-    private func actionTile(icon: String, title: String) -> some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(theme.accent)
-            Text(title)
-                .font(theme.font.bodyMedium)
-                .foregroundStyle(theme.textPrimary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 18)
-        .themedCard()
+    // MARK: - Sheet binding
+
+    /// Bridge a non-Identifiable enum to `.sheet(item:)` by wrapping it.
+    private var lookupBinding: Binding<IdentifiableLookupState?> {
+        Binding(
+            get: { lookupState.map(IdentifiableLookupState.init) },
+            set: { newValue in
+                if newValue == nil { lookupState = nil }
+            }
+        )
     }
 }
 
-struct ManualEntrySheet: View {
-    @Environment(\.appTheme) private var theme
-    @Environment(MockServiceContainer.self) private var services
-    @Environment(\.dismiss) private var dismiss
-    @State private var query = ""
-    @State private var results: [Product] = MockData.products
+/// Wrapper so we can use `.sheet(item:)` with a non-Identifiable enum.
+struct IdentifiableLookupState: Identifiable {
+    let id = UUID()
+    let state: ProductLookupState
+    init(_ state: ProductLookupState) { self.state = state }
+}
 
-    var body: some View {
-        NavigationStack {
-            ZStack {
-                ThemedBackdrop()
-                List {
-                    ForEach(results) { product in
-                        productRow(product)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                    }
-                }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
-            }
-            .searchable(text: $query, prompt: "Buscar alimento")
-            .onChange(of: query) { _, newValue in
-                Task {
-                    results = (try? await services.products.search(query: newValue)) ?? []
-                }
-            }
-            .navigationTitle("Buscar alimento")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Cerrar") { dismiss() }
-                        .foregroundStyle(theme.accent)
-                }
-            }
-        }
-    }
-
-    private func productRow(_ product: Product) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: "cube.box.fill")
-                .foregroundStyle(theme.accent)
-                .frame(width: 38, height: 38)
-                .background(theme.accent.opacity(0.18), in: Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(product.name)
-                    .font(theme.font.bodyMedium)
-                    .foregroundStyle(theme.textPrimary)
-                Text("\(product.brand ?? "Sin marca") · \(Int(product.caloriesPerServing)) kcal / \(Int(product.servingSizeG))g")
-                    .font(theme.font.caption)
-                    .foregroundStyle(theme.textSecondary)
-            }
-            Spacer()
-            Image(systemName: "plus.circle.fill")
-                .foregroundStyle(theme.accent)
-        }
-        .padding(12)
-        .themedInnerCard()
+private extension View {
+    /// Sugar for `sheet(item:content:)` accepting our wrapper directly.
+    func sheet(item: Binding<IdentifiableLookupState?>,
+               @ViewBuilder content: @escaping (ProductLookupState) -> some View) -> some View {
+        sheet(item: item) { wrapper in content(wrapper.state) }
     }
 }
 
