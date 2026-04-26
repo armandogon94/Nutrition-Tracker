@@ -28,6 +28,17 @@ final class MockAuthService: AuthServiceProtocol {
         isAuthenticated = true
     }
 
+    func signInWithApple(identityToken: String, userIdentifier: String, email: String?, fullName: PersonNameComponents?) async throws {
+        try await Task.sleep(nanoseconds: 200_000_000)
+        currentUser = MockUser(
+            id: UUID(),
+            email: email ?? "apple_\(userIdentifier)@fittracker.local",
+            displayName: fullName?.givenName ?? "Apple User",
+            createdAt: Date()
+        )
+        isAuthenticated = true
+    }
+
     func signOut() async {
         currentUser = nil
         isAuthenticated = false

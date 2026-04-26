@@ -9,12 +9,8 @@ gen:
 
 build: gen
 	DEVELOPER_DIR=$(DEVELOPER_DIR) xcodebuild -scheme $(SCHEME) \
-	  -destination '$(DESTINATION)' \
-	  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
-	  build
+	  -destination '$(DESTINATION)' build
 
-# Don't disable code signing on test — Keychain APIs (SecItemAdd) on
-# Simulator return errSecMissingEntitlement when signing is bypassed.
 test: gen
 	DEVELOPER_DIR=$(DEVELOPER_DIR) xcodebuild -scheme $(SCHEME) \
 	  -destination '$(DESTINATION)' test
