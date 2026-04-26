@@ -39,7 +39,7 @@ func mockAuth_quickLogin() {
     #expect(!sut.isAuthenticated)
     sut.quickLogin(as: MockData.user)
     #expect(sut.isAuthenticated)
-    #expect(sut.currentUser?.email == "carlos@fittracker.dev")
+    #expect(sut.currentUser?.email == MockData.user.email)
 }
 
 @MainActor
