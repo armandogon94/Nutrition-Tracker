@@ -42,7 +42,7 @@ struct HomeView: View {
                 .tracking(1.5)
                 .foregroundStyle(theme.textTertiary)
 
-            HStack(alignment: .center, spacing: 24) {
+            HStack(alignment: .center, spacing: 18) {
                 MacroRingView(
                     consumed: nutrition?.calories ?? 0,
                     goal: Double(goal?.dailyCalories ?? 2400),
@@ -50,7 +50,7 @@ struct HomeView: View {
                     carbsPct: macroPct(\.carbsG, goalKey: \.carbsG),
                     fatPct: macroPct(\.fatG, goalKey: \.fatG)
                 )
-                .frame(width: 130, height: 130)
+                .frame(width: 120, height: 120)
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
@@ -58,9 +58,13 @@ struct HomeView: View {
                             .font(theme.font.heroNumeral)
                             .foregroundStyle(theme.textPrimary)
                             .contentTransition(.numericText())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
                         Text("/ \(goal?.dailyCalories ?? 2400)")
                             .font(theme.font.body)
                             .foregroundStyle(theme.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     }
                     Text("kcal")
                         .font(theme.font.caption)
@@ -70,6 +74,7 @@ struct HomeView: View {
                     macroLine("Carbos", value: nutrition?.carbsG ?? 0, goal: Double(goal?.carbsG ?? 0), color: theme.categoryColors[1])
                     macroLine("Grasa", value: nutrition?.fatG ?? 0, goal: Double(goal?.fatG ?? 0), color: theme.categoryColors[2])
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
