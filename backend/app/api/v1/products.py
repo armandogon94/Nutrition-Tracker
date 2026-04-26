@@ -1,12 +1,13 @@
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user_id
+from app.core.rate_limit import limiter, tag_user_from_optional_token
 from app.models.product import Product
 from app.schemas.product import ProductCreate, ProductResponse
 from app.services.product_lookup import lookup_product
@@ -15,10 +16,17 @@ router = APIRouter()
 
 
 @router.get("/search", response_model=ProductResponse)
+@limiter.limit("60/minute")
 async def search_product_by_barcode(
-    barcode: str, db: AsyncSession = Depends(get_db)
+    request: Request,
+    barcode: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(tag_user_from_optional_token),
 ) -> Product:
-    """Look up a product by barcode. Checks local cache first, then external APIs."""
+    """Look up a product by barcode. Checks local cache first, then external APIs.
+
+    Rate-limited at 60/minute per user (when authenticated) or per IP otherwise.
+    """
     # 1. Check local DB cache
     result = await db.execute(select(Product).where(Product.barcode == barcode))
     cached = result.scalar_one_or_none()
@@ -59,8 +67,14 @@ async def create_product(
 
 
 @router.get("/{product_id}", response_model=ProductResponse)
-async def get_product(product_id: UUID, db: AsyncSession = Depends(get_db)) -> Product:
-    """Get a product by ID."""
+@limiter.limit("120/minute")
+async def get_product(
+    request: Request,
+    product_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(tag_user_from_optional_token),
+) -> Product:
+    """Get a product by ID. Rate-limited at 120/minute per user or per IP."""
     result = await db.execute(select(Product).where(Product.id == product_id))
     product = result.scalar_one_or_none()
     if not product:
