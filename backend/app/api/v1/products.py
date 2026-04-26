@@ -1,12 +1,12 @@
 from uuid import UUID
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
 from app.core.deps import get_current_user_id
+from app.core.http import get_client
 from app.core.rate_limit import limiter, tag_user_from_optional_token
 from app.models.product import Product
 from app.schemas.product import ProductCreate, ProductResponse
@@ -33,9 +33,9 @@ async def search_product_by_barcode(
     if cached:
         return cached
 
-    # 2. Cascade through external APIs
-    async with httpx.AsyncClient() as client:
-        product_data = await lookup_product(barcode, client)
+    # 2. Cascade through external APIs using the app-scoped shared client.
+    client = await get_client()
+    product_data = await lookup_product(barcode, client)
 
     if not product_data:
         raise HTTPException(status_code=404, detail="Product not found in any source")

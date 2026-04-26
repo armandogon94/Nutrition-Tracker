@@ -8,6 +8,7 @@ from slowapi.middleware import SlowAPIMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
+from app.core.http import close_client, init_client
 from app.core.rate_limit import limiter
 
 
@@ -15,7 +16,12 @@ from app.core.rate_limit import limiter
 async def lifespan(app: FastAPI):
     if settings.environment == "production" and settings.secret_key == "change-me-in-production":
         raise RuntimeError("SECRET_KEY must be changed in production!")
-    yield
+    # Slice 9.9: shared httpx.AsyncClient lives for the lifetime of the app.
+    await init_client()
+    try:
+        yield
+    finally:
+        await close_client()
 
 
 app = FastAPI(

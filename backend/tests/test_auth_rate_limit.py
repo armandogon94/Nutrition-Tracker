@@ -18,7 +18,6 @@ do not bleed across tests.
 import pytest
 
 from app.core.rate_limit import limiter
-from app.main import app
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +53,8 @@ async def test_login_rate_limited_after_5_requests(client):
     assert resp.status_code == 429
     assert "Retry-After" in resp.headers
     body = resp.json()
-    assert body == {"detail": "rate_limited", "retry_after": int(resp.headers["Retry-After"])}
+    expected_retry = int(resp.headers["Retry-After"])
+    assert body == {"detail": "rate_limited", "retry_after": expected_retry}
 
 
 async def test_register_rate_limited_after_3_requests(client):
