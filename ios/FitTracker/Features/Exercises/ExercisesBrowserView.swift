@@ -1,61 +1,118 @@
 //
 //  ExercisesBrowserView.swift
-//  Slice 0.5 mock — searchable exercise list with muscle/equipment chips.
+//  Slice 6.4: searchable exercise browser with muscle/equipment filter
+//  chips. Search debounced 300ms via DebouncedSearcher. Backed by
+//  ExercisesService (cache-aside; offline still works after one online
+//  sync). LazyVStack with stable IDs for 60fps scrolling at 100+ rows.
+//
+//  Skills invoked:
+//   - everything-claude-code:swiftui-patterns
+//   - performance-optimization (LazyVStack stable id, AsyncImage with
+//     .task cancellation on scroll-off)
 //
 
 import SwiftUI
 
 struct ExercisesBrowserView: View {
     @Environment(\.appTheme) private var theme
-    @Environment(MockServiceContainer.self) private var services
+    @Environment(MockServiceContainer.self) private var container
 
-    @State private var query = ""
+    /// Optional override for previews / tests.
+    var injectedService: (any ExercisesServiceProtocol)?
+
+    @State private var query: String = ""
     @State private var muscle: MuscleGroup?
     @State private var equipment: Equipment?
-    @State private var results: [Exercise] = MockData.exercises
+    @State private var results: [Exercise] = []
+    @State private var isLoading = false
+    @State private var debouncer: DebouncedSearcher?
+
+    private var service: any ExercisesServiceProtocol {
+        injectedService ?? container.exercises
+    }
 
     var body: some View {
         ZStack {
             ThemedBackdrop()
             VStack(spacing: 0) {
                 filtersBar
-                List(results) { ex in
-                    NavigationLink {
-                        ExerciseDetailView(exercise: ex)
-                    } label: {
-                        exerciseRow(ex)
+                if isLoading && results.isEmpty {
+                    Spacer()
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(theme.accent)
+                    Spacer()
+                } else if results.isEmpty {
+                    Spacer()
+                    Text(String(localized: "exercises.empty"))
+                        .font(theme.font.body)
+                        .foregroundStyle(theme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
+                    Spacer()
+                } else {
+                    ScrollView {
+                        LazyVStack(spacing: 6) {
+                            ForEach(results, id: \.id) { exercise in
+                                NavigationLink {
+                                    ExerciseDetailView(exercise: exercise)
+                                } label: {
+                                    ExerciseRow(exercise: exercise)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                            Spacer(minLength: 30)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
                     }
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .scrollContentBackground(.hidden)
                 }
-                .listStyle(.plain)
-                .scrollContentBackground(.hidden)
             }
         }
-        .searchable(text: $query, prompt: "Buscar ejercicio")
-        .navigationTitle("Ejercicios")
-        .onChange(of: query) { _, _ in updateResults() }
+        .searchable(text: $query, prompt: Text(String(localized: "exercises.searchPrompt")))
+        .navigationTitle(Text(String(localized: "exercises.title")))
+        .onChange(of: query) { _, newValue in
+            debouncer?.fire(query: newValue)
+        }
+        .onChange(of: muscle) { _, _ in Task { await reload() } }
+        .onChange(of: equipment) { _, _ in Task { await reload() } }
+        .task {
+            if debouncer == nil {
+                debouncer = makeDebouncer()
+            }
+            await reload()
+        }
     }
+
+    // MARK: - Filters
 
     private var filtersBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                chip(label: "Músculo", selected: muscle?.label) {
+                chip(
+                    label: String(localized: "exercises.filter.muscle"),
+                    selected: muscle?.label
+                ) {
                     muscle = nextMuscle()
-                    updateResults()
                 }
-                chip(label: "Equipo", selected: equipment?.label) {
+                chip(
+                    label: String(localized: "exercises.filter.equipment"),
+                    selected: equipment?.label
+                ) {
                     equipment = nextEquipment()
-                    updateResults()
                 }
                 if muscle != nil || equipment != nil {
                     Button {
-                        muscle = nil; equipment = nil; updateResults()
+                        muscle = nil
+                        equipment = nil
                     } label: {
-                        Label("Limpiar", systemImage: "xmark.circle.fill")
-                            .font(theme.font.caption)
-                            .foregroundStyle(theme.negative)
+                        Label(
+                            String(localized: "exercises.filter.clear"),
+                            systemImage: "xmark.circle.fill"
+                        )
+                        .font(theme.font.caption)
+                        .foregroundStyle(theme.negative)
                     }
                 }
             }
@@ -64,7 +121,9 @@ struct ExercisesBrowserView: View {
         .padding(.vertical, 8)
     }
 
-    private func chip(label: String, selected: String?, action: @escaping () -> Void) -> some View {
+    private func chip(label: String,
+                      selected: String?,
+                      action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 6) {
                 Text(selected ?? label)
@@ -74,101 +133,64 @@ struct ExercisesBrowserView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
-                Capsule().fill(selected == nil ? theme.surfaceSecondary : theme.accent.opacity(0.2))
+                Capsule().fill(selected == nil
+                               ? theme.surfaceSecondary
+                               : theme.accent.opacity(0.2))
             )
             .foregroundStyle(selected == nil ? theme.textSecondary : theme.accent)
         }
     }
 
-    private func exerciseRow(_ ex: Exercise) -> some View {
-        HStack(spacing: 12) {
-            ZStack {
-                Circle().fill(theme.accent.opacity(0.18))
-                Image(systemName: "dumbbell.fill")
-                    .foregroundStyle(theme.accent)
-            }
-            .frame(width: 38, height: 38)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(ex.name)
-                    .font(theme.font.bodyMedium)
-                    .foregroundStyle(theme.textPrimary)
-                Text("\(ex.primaryMuscle.label) · \(ex.equipment.label)")
-                    .font(theme.font.caption)
-                    .foregroundStyle(theme.textSecondary)
-            }
-        }
-        .padding(10)
-        .themedInnerCard()
-    }
-
-    private func updateResults() {
-        Task {
-            results = (try? await services.exercises.search(query: query, muscle: muscle, equipment: equipment)) ?? []
-        }
-    }
+    // MARK: - Chip cycling
 
     private func nextMuscle() -> MuscleGroup? {
         let order: [MuscleGroup?] = [nil] + MuscleGroup.allCases.map { Optional($0) }
         let i = order.firstIndex(of: muscle) ?? 0
         return order[(i + 1) % order.count]
     }
+
     private func nextEquipment() -> Equipment? {
         let order: [Equipment?] = [nil] + Equipment.allCases.map { Optional($0) }
         let i = order.firstIndex(of: equipment) ?? 0
         return order[(i + 1) % order.count]
     }
+
+    // MARK: - Loading
+
+    private func makeDebouncer() -> DebouncedSearcher {
+        DebouncedSearcher(intervalMillis: 300) { @Sendable [self] _ in
+            await reload()
+        }
+    }
+
+    @MainActor
+    private func reload() async {
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            results = try await service.search(query: query,
+                                                muscle: muscle,
+                                                equipment: equipment)
+        } catch {
+            // Keep previous results on error; future polish: surface a banner.
+        }
+    }
 }
 
-struct ExerciseDetailView: View {
-    @Environment(\.appTheme) private var theme
-    let exercise: Exercise
-
-    var body: some View {
-        ZStack {
-            ThemedBackdrop()
-            ScrollView {
-                VStack(spacing: 14) {
-                    videoPlaceholder
-                    metaCard
-                    Spacer(minLength: 60)
-                }
-                .padding(16)
-            }
-            .scrollContentBackground(.hidden)
-        }
-        .navigationTitle(exercise.name)
-        .navigationBarTitleDisplayMode(.inline)
+#Preview("ExercisesBrowser — Liquid Glass") {
+    NavigationStack {
+        ExercisesBrowserView()
+            .environment(\.appTheme, LiquidGlassTheme())
+            .environment(MockServiceContainer())
+            .preferredColorScheme(.dark)
     }
+}
 
-    private var videoPlaceholder: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(.black)
-            Image(systemName: "play.circle.fill")
-                .font(.system(size: 60))
-                .foregroundStyle(.white.opacity(0.85))
-        }
-        .frame(height: 220)
-    }
-
-    private var metaCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            row("Músculo principal", value: exercise.primaryMuscle.label)
-            if !exercise.secondaryMuscles.isEmpty {
-                row("Secundarios", value: exercise.secondaryMuscles.map(\.label).joined(separator: ", "))
-            }
-            row("Equipo", value: exercise.equipment.label)
-            row("Dificultad", value: exercise.difficulty.label)
-        }
-        .padding(16)
-        .themedCard()
-    }
-
-    private func row(_ label: String, value: String) -> some View {
-        HStack {
-            Text(label).font(theme.font.body).foregroundStyle(theme.textSecondary)
-            Spacer()
-            Text(value).font(theme.font.bodyMedium).foregroundStyle(theme.textPrimary)
-        }
+#Preview("ExercisesBrowser — Health Cards") {
+    NavigationStack {
+        ExercisesBrowserView()
+            .environment(\.appTheme, HealthCardsTheme())
+            .environment(MockServiceContainer())
+            .preferredColorScheme(.light)
     }
 }
