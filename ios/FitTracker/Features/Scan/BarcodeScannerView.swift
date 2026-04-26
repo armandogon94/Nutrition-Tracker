@@ -137,7 +137,9 @@ struct BarcodeScannerHostView: View {
             case .granted:
                 if DataScannerViewController.isSupported {
                     BarcodeScannerView { value in
-                        scannedBarcode = value
+                        Task { @MainActor in
+                            scannedBarcode = value
+                        }
                     }
                     .ignoresSafeArea()
                     overlay
