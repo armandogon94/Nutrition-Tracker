@@ -274,8 +274,14 @@ final class DailyNutritionEntity {
         self.lastSyncedAt = lastSyncedAt
     }
 
+    /// Composite-key derivation. Uses UTC startOfDay so the key is stable
+    /// regardless of the device timezone (a meal logged at 23:30 local
+    /// must produce the same key as the backend's "2026-04-25" string
+    /// for that same calendar day). Per ADR-0004 §6.
     static func makeKey(userId: UUID, date: Date) -> String {
-        let day = Calendar(identifier: .iso8601).startOfDay(for: date)
+        var cal = Calendar(identifier: .iso8601)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let day = cal.startOfDay(for: date)
         return "\(userId.uuidString):\(Int(day.timeIntervalSince1970))"
     }
 }

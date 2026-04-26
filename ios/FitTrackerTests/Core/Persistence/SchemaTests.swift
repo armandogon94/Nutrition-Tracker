@@ -137,15 +137,20 @@ struct SchemaTests {
     }
 
     @MainActor
-    @Test("DailyNutrition composite key is stable across same-day timestamps")
+    @Test("DailyNutrition composite key is stable across same-UTC-day timestamps")
     func dailyNutrition_keyStability() {
+        // Per ADR-0004 §6 the key is UTC-anchored so a meal logged at
+        // 23:30 local (which is the next-day UTC) collides with the
+        // backend's 'date' for that calendar day. Test that two different
+        // UTC times within the same UTC day produce the same key.
         let userId = UUID()
-        let cal = Calendar(identifier: .iso8601)
-        let morning = cal.date(bySettingHour: 7, minute: 0, second: 0, of: .now)!
-        let evening = cal.date(bySettingHour: 22, minute: 0, second: 0, of: .now)!
-        let key1 = DailyNutritionEntity.makeKey(userId: userId, date: morning)
-        let key2 = DailyNutritionEntity.makeKey(userId: userId, date: evening)
-        #expect(key1 == key2, "same-day timestamps must produce identical keys")
+        var cal = Calendar(identifier: .iso8601)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        let dawn = cal.date(from: DateComponents(year: 2026, month: 4, day: 25, hour: 0, minute: 30))!
+        let dusk = cal.date(from: DateComponents(year: 2026, month: 4, day: 25, hour: 23, minute: 30))!
+        let key1 = DailyNutritionEntity.makeKey(userId: userId, date: dawn)
+        let key2 = DailyNutritionEntity.makeKey(userId: userId, date: dusk)
+        #expect(key1 == key2, "same UTC day timestamps must produce identical keys")
     }
 
     @MainActor
