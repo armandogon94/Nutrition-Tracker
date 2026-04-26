@@ -179,7 +179,7 @@ private struct HomeMealRow: View {
         .environment(\.appTheme, LiquidGlassTheme())
         .environment({
             let s = MockServiceContainer()
-            s.auth.quickLogin(as: MockData.user)
+            (s.auth as? MockAuthService)?.quickLogin(as: MockData.user)
             return s
         }())
         .preferredColorScheme(.dark)

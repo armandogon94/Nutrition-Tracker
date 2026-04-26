@@ -142,7 +142,7 @@ struct LoginView: View {
                 .foregroundStyle(theme.textTertiary)
             ForEach(MockData.testAccounts) { account in
                 Button {
-                    services.auth.quickLogin(as: account)
+                    quickLogin(as: account)
                 } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
@@ -166,6 +166,18 @@ struct LoginView: View {
         }
         .padding(18)
         .themedInnerCard()
+    }
+
+    @MainActor
+    private func quickLogin(as account: MockUser) {
+        // Mock path = instant; Real path = drive the form and submit.
+        if let mock = services.auth as? MockAuthService {
+            mock.quickLogin(as: account)
+            return
+        }
+        email = account.email
+        password = "test1234"
+        Task { await login() }
     }
 
     // MARK: - Actions
