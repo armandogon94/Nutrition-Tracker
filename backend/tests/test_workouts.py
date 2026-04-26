@@ -253,6 +253,96 @@ async def test_get_volume(auth_client, db_session):
         assert "total_sets" in data[0]
 
 
+async def test_history_uses_single_query(auth_client, db_session, setup_db):
+    """N+1 guard: GET /workouts/history must NOT fire one query per session.
+
+    Seeds 5 completed sessions × 3 sets each (each with a distinct exercise),
+    each session linked to a workout program + day, and asserts the entire
+    endpoint executes in a small, bounded number of SELECTs rather than scaling
+    with session count.
+    """
+    from sqlalchemy import event
+
+    from app.models.workout import WorkoutProgramDay
+
+    _engine, session_factory = setup_db
+
+    # Seed exercises
+    exercises = []
+    for i in range(3):
+        ex = await _create_exercise(db_session, name_suffix=f"n1-{i}")
+        exercises.append(ex)
+
+    # Seed a program + day so the history endpoint must look them up per session
+    program = await _create_preset_program(db_session)
+    program_day = WorkoutProgramDay(
+        program_id=program.id,
+        day_number=1,
+        day_name="Push Day",
+    )
+    db_session.add(program_day)
+    await db_session.commit()
+
+    # Seed 5 sessions × 3 sets via the API to exercise the same code paths
+    now = datetime.utcnow()
+    session_ids: list[str] = []
+    for s_idx in range(5):
+        resp = await auth_client.post(
+            "/api/v1/workouts/sessions",
+            json={
+                "started_at": (now - timedelta(hours=s_idx)).isoformat(),
+                "program_id": str(program.id),
+                "program_day_id": str(program_day.id),
+            },
+        )
+        sid = resp.json()["id"]
+        session_ids.append(sid)
+        for set_idx, ex in enumerate(exercises, start=1):
+            await auth_client.post(
+                f"/api/v1/workouts/sessions/{sid}/sets",
+                json={
+                    "exercise_id": str(ex.id),
+                    "set_number": set_idx,
+                    "reps": 5,
+                    "weight_kg": 50.0 + set_idx,
+                },
+            )
+        await auth_client.patch(
+            f"/api/v1/workouts/sessions/{sid}/complete",
+            json={"notes": "n1 test"},
+        )
+
+    # Count SELECT queries during the history call
+    sync_engine = _engine.sync_engine
+    select_count = {"n": 0}
+    captured: list[str] = []
+
+    def _on_execute(conn, cursor, statement, parameters, context, executemany):
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_count["n"] += 1
+            captured.append(statement.split("\n")[0][:140])
+
+    event.listen(sync_engine, "before_cursor_execute", _on_execute)
+    try:
+        response = await auth_client.get("/api/v1/workouts/history")
+    finally:
+        event.remove(sync_engine, "before_cursor_execute", _on_execute)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) >= 5
+
+    # With selectinload + batched program/day name lookups: 1 auth user +
+    # 1 sessions + 1 sets-batch + 1 exercises-batch + 1 programs-batch +
+    # 1 program_days-batch = 6 SELECTs total, bounded regardless of session
+    # count. Without the fix, the loop over sessions adds a per-session
+    # program SELECT and program_day SELECT, scaling 1 + 2N + … (29 for N=5).
+    assert select_count["n"] <= 6, (
+        f"history endpoint executed {select_count['n']} SELECTs — N+1 not fixed.\n"
+        + "\n".join(f"  {i + 1}. {q}" for i, q in enumerate(captured))
+    )
+
+
 async def test_get_personal_records(auth_client, db_session):
     exercise = await _create_exercise(db_session, "pr-test")
 

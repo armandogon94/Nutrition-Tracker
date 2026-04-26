@@ -6,7 +6,16 @@ class Settings(BaseSettings):
     environment: str = "development"
     secret_key: str = "change-me-in-production"
     jwt_algorithm: str = "HS256"
-    jwt_expire_hours: int = 24
+    # Slice 9.5 — access tokens shrink from 24h to 1h now that refresh
+    # rotation is available. Mobile clients silently refresh before expiry.
+    jwt_expire_hours: int = 1
+    # Refresh tokens persist for 30 days; rotated on every /auth/refresh.
+    refresh_token_expire_days: int = 30
+
+    # Slice 9.6 — Sign in with Apple verification
+    apple_bundle_id: str = "com.armandointeligencia.FitTracker"
+    apple_jwk_url: str = "https://appleid.apple.com/auth/keys"
+    apple_issuer: str = "https://appleid.apple.com"
 
     # Open Food Facts
     off_base_url: str = "https://world.openfoodfacts.org"

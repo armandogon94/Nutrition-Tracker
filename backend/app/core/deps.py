@@ -45,3 +45,17 @@ async def get_current_user(
 
 async def get_current_user_id(user: User = Depends(get_current_user)) -> uuid.UUID:
     return user.id
+
+
+async def require_admin(user: User = Depends(get_current_user)) -> User:
+    """FastAPI dep that enforces `user.role == 'admin'`.
+
+    Used by `/api/v1/admin/*` routes (introduced in Slice 10). Returns the
+    authenticated user (admin) so the route handler can use it directly.
+    """
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin role required",
+        )
+    return user

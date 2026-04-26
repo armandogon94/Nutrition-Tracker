@@ -4,6 +4,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.database import get_db
 from app.core.datetime_utils import utcnow_naive
@@ -150,6 +151,10 @@ async def get_workout_history(
     if not start_date:
         start_date = end_date - timedelta(days=30)
 
+    # Avoid N+1: eagerly load sets (and their exercise) plus the program day in
+    # a single round-trip via selectinload. Program names need a separate batch
+    # SELECT WHERE id IN (...) below — we cannot eager-load them through the
+    # session relationship because WorkoutSession does not declare one.
     result = await db.execute(
         select(WorkoutSession)
         .where(
@@ -157,28 +162,44 @@ async def get_workout_history(
             WorkoutSession.started_at >= start_date,
             WorkoutSession.started_at <= end_date,
         )
+        .options(
+            selectinload(WorkoutSession.sets).selectinload(WorkoutSet.exercise),
+        )
         .order_by(WorkoutSession.started_at.desc())
     )
     sessions = list(result.scalars().all())
+
+    # Batch-load only the columns we need. Selecting whole ORM objects would
+    # cascade-fire the `lazy="selectin"` relationships on WorkoutProgram.days
+    # and WorkoutProgramDay.exercises, adding queries we don't use.
+    program_ids = {s.program_id for s in sessions if s.program_id is not None}
+    program_day_ids = {s.program_day_id for s in sessions if s.program_day_id is not None}
+
+    program_names: dict = {}
+    if program_ids:
+        prog_result = await db.execute(
+            select(WorkoutProgram.id, WorkoutProgram.name).where(
+                WorkoutProgram.id.in_(program_ids)
+            )
+        )
+        program_names = {row[0]: row[1] for row in prog_result.all()}
+
+    day_names: dict = {}
+    if program_day_ids:
+        day_result = await db.execute(
+            select(WorkoutProgramDay.id, WorkoutProgramDay.day_name).where(
+                WorkoutProgramDay.id.in_(program_day_ids)
+            )
+        )
+        day_names = {row[0]: row[1] for row in day_result.all()}
 
     entries = []
     for s in sessions:
         total_sets = len(s.sets)
         total_volume = sum((ws.reps * (ws.weight_kg or 0)) for ws in s.sets)
 
-        # Get program/day names if available
-        program_name = None
-        day_name = None
-        if s.program_id:
-            prog_result = await db.execute(select(WorkoutProgram).where(WorkoutProgram.id == s.program_id))
-            prog = prog_result.scalar_one_or_none()
-            if prog:
-                program_name = prog.name
-        if s.program_day_id:
-            day_result = await db.execute(select(WorkoutProgramDay).where(WorkoutProgramDay.id == s.program_day_id))
-            day = day_result.scalar_one_or_none()
-            if day:
-                day_name = day.day_name
+        program_name = program_names.get(s.program_id)
+        day_name = day_names.get(s.program_day_id)
 
         entries.append(WorkoutHistoryEntry(
             id=s.id,
