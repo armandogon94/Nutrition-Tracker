@@ -126,3 +126,65 @@ struct NutritionGoalResponseDTO: Codable, Sendable {
     let daily_carbs_g: Int
     let daily_fat_g: Int
 }
+
+// MARK: - Exercises (Slice 6)
+
+struct ExerciseDTO: Codable, Sendable {
+    let id: String
+    let name: String
+    let primary_muscle: String
+    let secondary_muscles: String?
+    let equipment: String?
+    let difficulty: String?
+    let instructions: String?
+    let video_url: String?
+    let category: String?
+}
+
+struct ExerciseListDTO: Codable, Sendable {
+    let exercises: [ExerciseDTO]
+    let total: Int
+}
+
+// MARK: - Programs (Slice 6)
+
+struct WorkoutProgramExerciseDTO: Codable, Sendable {
+    let id: String
+    let exercise: ExerciseDTO
+    let set_count: Int
+    let rep_min: Int?
+    let rep_max: Int?
+    let rest_seconds: Int?
+    let exercise_order: Int
+    let notes: String?
+}
+
+struct WorkoutProgramDayDTO: Codable, Sendable {
+    let id: String
+    let day_number: Int
+    let day_name: String?
+    let focus: String?
+    let description: String?
+    let exercises: [WorkoutProgramExerciseDTO]
+}
+
+struct WorkoutProgramListDTO: Codable, Sendable {
+    let id: String
+    let name: String
+    let description: String?
+    let program_type: String?
+    let days_per_week: Int
+    let difficulty: String?
+    let is_preset: Bool
+}
+
+struct WorkoutProgramDTO: Codable, Sendable {
+    let id: String
+    let name: String
+    let description: String?
+    let program_type: String?
+    let days_per_week: Int
+    let difficulty: String?
+    let is_preset: Bool
+    let days: [WorkoutProgramDayDTO]
+}
