@@ -17,6 +17,7 @@ from app.core.security import (
 )
 from app.models.user import User
 from app.schemas.auth import (
+    AppleSigninRequest,
     LogoutRequest,
     RefreshRequest,
     RefreshResponse,
@@ -25,6 +26,7 @@ from app.schemas.auth import (
     UserRegister,
     UserResponse,
 )
+from app.services.apple_verifier import verify_identity_token
 
 router = APIRouter()
 
@@ -73,6 +75,83 @@ async def login(data: UserLogin, db: AsyncSession = Depends(get_db)) -> TokenRes
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
+
+    access_token, expires_in = _access_token_for(user)
+    refresh_plain, _ = await create_refresh_token(db, user.id)
+
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_plain,
+        expires_in=expires_in,
+        user=UserResponse.model_validate(user),
+    )
+
+
+def _synthesize_apple_email(apple_user_id: str) -> str:
+    """Fallback when Apple withholds the email on follow-up sign-ins."""
+    return f"apple_{apple_user_id}@fittracker.local"
+
+
+def _display_name_from(req: AppleSigninRequest, fallback: str) -> str:
+    if req.full_name and (req.full_name.firstName or req.full_name.lastName):
+        first = (req.full_name.firstName or "").strip()
+        last = (req.full_name.lastName or "").strip()
+        joined = f"{first} {last}".strip()
+        if joined:
+            return joined
+    return fallback
+
+
+@router.post("/apple", response_model=TokenResponse)
+async def sign_in_with_apple(
+    data: AppleSigninRequest, db: AsyncSession = Depends(get_db)
+) -> TokenResponse:
+    """Verify an Apple identity token and upsert a user keyed by Apple user id.
+
+    On first sign-in we create a new user — preferring the email Apple put in
+    the JWT (or the request body if Apple omitted it), falling back to a
+    synthesized `apple_<id>@fittracker.local` so the unique-email constraint
+    is always satisfied. Subsequent sign-ins look the user up by
+    `apple_user_id` and reuse the row.
+    """
+    claims = await verify_identity_token(data.identity_token)
+
+    # Apple's verified `sub` is the canonical user id. The request body field
+    # is duplicated to make iOS error-handling easier; we trust the JWT.
+    apple_user_id = str(claims.get("sub") or data.user_identifier)
+
+    result = await db.execute(
+        select(User).where(User.apple_user_id == apple_user_id)
+    )
+    user = result.scalar_one_or_none()
+
+    if user is None:
+        verified_email = claims.get("email")
+        email = (
+            verified_email
+            or (data.email if data.email else None)
+            or _synthesize_apple_email(apple_user_id)
+        )
+
+        # Email collision guard: if a password user already owns this email,
+        # link the Apple id to that account rather than 409-ing the user out
+        # of their own login.
+        existing = await db.execute(select(User).where(User.email == email))
+        existing_user = existing.scalar_one_or_none()
+        if existing_user is not None:
+            existing_user.apple_user_id = apple_user_id
+            user = existing_user
+        else:
+            user = User(
+                email=email,
+                password_hash="!apple-no-password",  # never matches verify_password
+                display_name=_display_name_from(data, fallback=email.split("@")[0]),
+                apple_user_id=apple_user_id,
+            )
+            db.add(user)
+
+        await db.flush()
+        await db.refresh(user)
 
     access_token, expires_in = _access_token_for(user)
     refresh_plain, _ = await create_refresh_token(db, user.id)
