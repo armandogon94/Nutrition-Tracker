@@ -15,9 +15,13 @@ build: gen
 
 # Don't disable code signing on test — Keychain APIs (SecItemAdd) on
 # Simulator return errSecMissingEntitlement when signing is bypassed.
+# Disable parallel testing — MockURLProtocol uses static handler state
+# that collides when APIClient/AuthService suites run concurrently.
 test: gen
 	DEVELOPER_DIR=$(DEVELOPER_DIR) xcodebuild -scheme $(SCHEME) \
-	  -destination '$(DESTINATION)' test
+	  -destination '$(DESTINATION)' \
+	  -parallel-testing-enabled NO \
+	  test
 
 clean:
 	rm -rf FitTracker.xcodeproj DerivedData build
