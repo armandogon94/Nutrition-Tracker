@@ -44,6 +44,10 @@ final class MockAuthService: AuthServiceProtocol {
         isAuthenticated = false
     }
 
+    func restoreSession() async {
+        // No persisted state in mock — already in correct state from init/quickLogin
+    }
+
     /// Test convenience: skip the form, drop straight in.
     func quickLogin(as user: MockUser) {
         currentUser = user

@@ -35,11 +35,29 @@ final class AuthService: AuthServiceProtocol {
     init(api: APIClient = APIClient(), keychain: KeychainTokenStore = .shared) {
         self.api = api
         self.keychain = keychain
-        // Restore session from Keychain at launch; the result drives the AuthGate.
-        let hasAccess = keychain.currentAccessToken() != nil
-        let hasRefresh = keychain.currentRefreshToken() != nil
-        self.isAuthenticated = hasAccess || hasRefresh
-        self.currentUser = nil    // Hydrated by `loadCurrentUser()` after restore
+        // Initial state: trust the Keychain. AuthGate calls
+        // restoreSession() on first appear, which hydrates currentUser
+        // and falls back to login if the refresh fails.
+        self.isAuthenticated = keychain.currentAccessToken() != nil
+                              || keychain.currentRefreshToken() != nil
+        self.currentUser = nil
+    }
+
+    /// Called by AuthGate on first appear. If a session is present,
+    /// validates by calling /auth/me (refreshing the access token if
+    /// needed). On failure flips isAuthenticated back to false so the
+    /// gate routes to LoginView.
+    func restoreSession() async {
+        guard isAuthenticated else { return }
+        do {
+            // Will refresh if access token is near expiry
+            _ = try await currentAccessTokenIfValid()
+            try await loadCurrentUser()
+        } catch {
+            keychain.clearAll()
+            currentUser = nil
+            isAuthenticated = false
+        }
     }
 
     // MARK: - Auth flows
