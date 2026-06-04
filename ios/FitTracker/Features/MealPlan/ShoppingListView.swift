@@ -79,16 +79,17 @@ struct ShoppingListView: View {
             Text("\(remaining)/\(items.count)")
                 .font(theme.font.titleCompact)
                 .foregroundStyle(theme.textPrimary)
-            Text("shopping.itemsRemaining \(remaining) \(items.count)")
-                .font(theme.font.caption)
-                .foregroundStyle(theme.textSecondary)
-                .opacity(0)              // a11y label only; visual is the ratio
             Spacer()
             ProgressView(value: Double(items.count - remaining), total: Double(max(items.count, 1)))
                 .tint(theme.positive)
                 .frame(width: 120)
         }
         .padding(.horizontal, 4)
+        // VoiceOver reads "N de M pendientes" instead of "N slash M".
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(
+            String(localized: "shopping.itemsRemaining \(remaining) \(items.count)")
+        )
     }
 
     private func section(category: ShoppingCategory, items: [ShoppingItem]) -> some View {
