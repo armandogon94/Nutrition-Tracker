@@ -350,11 +350,12 @@ struct SessionView: View {
                 model.celebrate(pr)
             }
 
-            // Start the rest timer (unless this was the final set of the
-            // final exercise — no need to rest after the last one).
-            if model.currentExercise != nil {
-                startRest(restSeconds: restSeconds, exerciseName: ex.exerciseName)
-            }
+            // Start the rest timer after every logged set. The lifter then
+            // either does the next set, advances to the next exercise, or
+            // taps Finish (all of which dismiss/cancel the timer). We don't
+            // suppress it on the "last" set because lifters routinely add
+            // extra sets, and resting before tapping Finish is harmless.
+            startRest(restSeconds: restSeconds, exerciseName: ex.exerciseName)
         } catch {
             // logSet is offline-resilient; a thrown error here is unexpected
             // (e.g. session-not-found). Surface nothing destructive — the

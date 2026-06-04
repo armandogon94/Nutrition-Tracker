@@ -98,9 +98,10 @@ targets:
     sources:
       - path: FitTrackerRestTimer
       # Shared attribute type — compiled into both the app and this
-      # extension so ActivityKit can match the activity by structure.
+      # extension so ActivityKit can match the activity by structure. No
+      # explicit group: it keeps its natural group to avoid a file being
+      # listed under two groups (a malformed-project warning).
       - path: FitTracker/Core/LiveActivity/RestTimerAttributes.swift
-        group: FitTrackerRestTimer/Shared
     info:
       path: FitTrackerRestTimer/Info.plist
       properties:
