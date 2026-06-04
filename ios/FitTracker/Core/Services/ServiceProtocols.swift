@@ -81,6 +81,48 @@ protocol MealPlanServiceProtocol: AnyObject {
     func toggleChecked(_ itemId: UUID) async throws
 }
 
+/// Slice 4: extends the minimal Slice-0.5 surface with the full meal-plan
+/// CRUD + shopping-list generation backed by the FastAPI backend and the
+/// SwiftData cache. Kept as a separate protocol so the Slice-0.5 mock can
+/// keep satisfying `MealPlanServiceProtocol` without growing the network
+/// surface, mirroring the `MealLoggingServiceProtocol` split.
+@MainActor
+protocol MealPlanningServiceProtocol: MealPlanServiceProtocol {
+    /// Create (and locally cache) a weekly plan for the given week start.
+    func createPlan(weekStartDate: Date, userId: UUID, name: String) async throws -> MealPlan
+
+    /// Add a product to a plan cell (day × meal slot). Optimistically
+    /// caches the item; throws if the backend POST fails (the optimistic
+    /// row is left in place with pendingSync=true for retry).
+    func addItem(toPlan planId: UUID,
+                 dayIndex: Int,
+                 mealType: MealType,
+                 product: Product,
+                 servings: Double) async throws -> MealPlanItem
+
+    /// Move an item to a different day/slot. The backend has no item-PATCH,
+    /// so this deletes the old item and recreates it; the local cache is
+    /// updated optimistically first so the UI moves the chip immediately.
+    func moveItem(_ itemId: UUID,
+                  toDay dayIndex: Int,
+                  mealType: MealType,
+                  inPlan planId: UUID) async throws
+
+    /// Remove an item from a plan (cache + backend).
+    func removeItem(_ itemId: UUID, fromPlan planId: UUID) async throws
+
+    /// Generate (or regenerate) the shopping list for a plan. Caches the
+    /// list + items and returns them grouped-ready as domain structs.
+    func generateShoppingList(forPlan planId: UUID, userId: UUID) async throws -> [ShoppingItem]
+
+    /// Set the checked state of a shopping item (cache + backend PATCH).
+    func setChecked(_ itemId: UUID, checked: Bool, listId: UUID) async throws
+
+    /// The id of the most recently generated shopping list in the cache,
+    /// if any. Views need it to address the check PATCH endpoint.
+    func currentShoppingListId() async throws -> UUID?
+}
+
 // MARK: - Profile + Goals
 
 @MainActor

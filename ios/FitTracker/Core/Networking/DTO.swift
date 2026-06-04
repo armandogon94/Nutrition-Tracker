@@ -277,3 +277,93 @@ struct WorkoutProgramDTO: Codable, Sendable {
     let is_preset: Bool
     let days: [WorkoutProgramDayDTO]
 }
+
+// MARK: - Meal Plan + Shopping List (Slice 4)
+
+/// Request body for POST /api/v1/meal-plans. Mirrors
+/// `app/schemas/meal_plan.py:MealPlanCreate`. `week_start_date` is a
+/// date-only string ("yyyy-MM-dd"); we encode it ourselves rather than
+/// relying on the ISO8601 default so the backend `Date` field parses.
+struct MealPlanCreateRequest: Codable, Sendable {
+    let name: String
+    let week_start_date: String        // "yyyy-MM-dd"
+    let notes: String?
+    let is_template: Bool
+}
+
+/// Request body for POST /api/v1/meal-plans/{planId}/items. Mirrors
+/// `MealPlanItemCreate`. `meal_type` is one of breakfast|lunch|dinner|snack.
+struct MealPlanItemCreateRequest: Codable, Sendable {
+    let product_id: String
+    let day_of_week: Int               // 0..6 (Mon..Sun)
+    let meal_type: String
+    let quantity_servings: Double
+    let quantity_grams: Double?
+}
+
+/// Embedded product inside MealPlanItemResponse. This mirrors
+/// `app/schemas/product.py:ProductResponse` — NOT the flattened
+/// `ProductDTO` used elsewhere (that one carries `calories_per_serving`
+/// + `category`, which the meal-plan endpoint does not return). Kept
+/// minimal: meal-plan items only need the product name.
+struct MealPlanProductDTO: Codable, Sendable, Hashable {
+    let id: String
+    let name: String
+    let brand: String?
+}
+
+/// Mirrors `MealPlanItemResponse`. The full product is embedded; the iOS
+/// cache only stores `productName` + `servings` (see Schema.swift —
+/// MealPlanItemEntity).
+struct MealPlanItemDTO: Codable, Sendable, Hashable {
+    let id: String
+    let product_id: String
+    let day_of_week: Int
+    let meal_type: String
+    let quantity_servings: Double
+    let quantity_grams: Double?
+    let product: MealPlanProductDTO
+}
+
+/// Mirrors `MealPlanResponse`. `week_start_date` decodes via the
+/// date-only branch in APIClient's custom date strategy.
+struct MealPlanDTO: Codable, Sendable, Hashable {
+    let id: String
+    let user_id: String
+    let name: String
+    let week_start_date: Date
+    let notes: String?
+    let is_template: Bool
+    let items: [MealPlanItemDTO]
+}
+
+/// Request body for PATCH .../check. Mirrors `ShoppingItemCheck`.
+struct ShoppingItemCheckRequest: Codable, Sendable {
+    let is_checked: Bool
+}
+
+/// Response from the check PATCH endpoint: `{id, is_checked}`.
+struct ShoppingItemCheckResponse: Codable, Sendable {
+    let id: String
+    let is_checked: Bool
+}
+
+/// Mirrors `ShoppingListItemResponse`. `quantity` is numeric + a separate
+/// `unit`; the iOS `ShoppingItem` flattens these into a display string.
+struct ShoppingListItemDTO: Codable, Sendable, Hashable {
+    let id: String
+    let ingredient_name: String
+    let quantity: Double
+    let unit: String?
+    let category: String?
+    let is_checked: Bool
+}
+
+/// Mirrors `ShoppingListResponse`.
+struct ShoppingListDTO: Codable, Sendable, Hashable {
+    let id: String
+    let name: String?
+    let meal_plan_id: String?
+    let items: [ShoppingListItemDTO]
+    let generated_at: Date
+}
