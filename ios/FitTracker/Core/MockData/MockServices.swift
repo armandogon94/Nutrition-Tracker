@@ -121,6 +121,18 @@ final class MockProfileService: ProfileServiceProtocol {
     func updateProfile(_ profile: UserProfile) async throws { _profile = profile }
     func goal() async throws -> NutritionGoal { _goal }
     func updateGoal(_ goal: NutritionGoal) async throws { _goal = goal }
+
+    /// Mirrors the real service's preset path: recompute macros locally from
+    /// the stored profile's TDEE + preset adjustment so the preview reflects
+    /// the selection without a backend.
+    func updatePreset(_ preset: GoalPreset) async throws {
+        let bmr = TDEECalculator.bmr(
+            weightKg: _profile.weightKg, heightCm: _profile.heightCm,
+            age: _profile.age, sex: _profile.sex
+        )
+        let tdee = TDEECalculator.tdee(bmr: bmr, activity: _profile.activity)
+        _goal = TDEECalculator.macros(tdee: tdee, goal: preset, weightKg: _profile.weightKg)
+    }
 }
 
 // MARK: - Programs
@@ -172,16 +184,22 @@ final class MockServiceContainer {
     let products = MockProductsService()
     let meals = MockMealsService()
     let mealPlan = MockMealPlanService()
-    let profile = MockProfileService()
+    /// Slice 5.2: profile is protocol-typed so production injects the real
+    /// `ProfileService` (backend profile + TDEE + goals). ProfileView /
+    /// TDEECalculatorView / GoalsView / SettingsView consume it through
+    /// `any ProfileServiceProtocol` unchanged; previews keep the mock.
+    let profile: any ProfileServiceProtocol
     let programs = MockProgramsService()
     let exercises = MockExercisesService()
     let workouts = MockWorkoutService()
 
     init(auth: (any AuthServiceProtocol)? = nil,
-         nutrition: (any NutritionServiceProtocol)? = nil) {
+         nutrition: (any NutritionServiceProtocol)? = nil,
+         profile: (any ProfileServiceProtocol)? = nil) {
         let resolvedAuth = auth ?? MockAuthService()
         self.auth = resolvedAuth
         self.nutrition = nutrition ?? MockNutritionService()
+        self.profile = profile ?? MockProfileService()
 
         #if DEBUG
         // Auto-login when the app is launched with `-uiAutoLogin carlos`.
@@ -217,6 +235,7 @@ final class MockServiceContainer {
             context: PersistenceController.live.container.mainContext,
             userId: { [weak auth] in auth?.currentUser?.id }
         )
-        return MockServiceContainer(auth: auth, nutrition: nutrition)
+        let profile = ProfileService(api: api)
+        return MockServiceContainer(auth: auth, nutrition: nutrition, profile: profile)
     }
 }

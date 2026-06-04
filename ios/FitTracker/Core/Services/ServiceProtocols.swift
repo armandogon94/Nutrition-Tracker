@@ -89,6 +89,12 @@ protocol ProfileServiceProtocol: AnyObject {
     func updateProfile(_ profile: UserProfile) async throws
     func goal() async throws -> NutritionGoal
     func updateGoal(_ goal: NutritionGoal) async throws
+    /// Slice 5.4: persist a goal *preset* selection. Backend recalculates
+    /// macros from the current profile + preset adjustment and returns the
+    /// fresh targets. Added to the protocol so GoalsView can save presets
+    /// through `any ProfileServiceProtocol` (production = real ProfileService,
+    /// preview = MockProfileService).
+    func updatePreset(_ preset: GoalPreset) async throws
 }
 
 // MARK: - Programs + Exercises

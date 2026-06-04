@@ -16,6 +16,7 @@ struct SettingsView: View {
             ThemedBackdrop()
             ScrollView {
                 VStack(spacing: 14) {
+                    profileSection
                     themeSection
                     languageSection
                     accountSection
@@ -27,6 +28,46 @@ struct SettingsView: View {
         }
         .navigationTitle("Ajustes")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// Slice 5.5: entry points into the real ProfileView + GoalsView. These
+    /// push onto the Settings tab's NavigationStack and consume the real
+    /// ProfileService via `any ProfileServiceProtocol`.
+    private var profileSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            sectionHeader(String(localized: "settings.section.account"))
+            VStack(spacing: 0) {
+                NavigationLink {
+                    ProfileView()
+                } label: {
+                    settingsRow(icon: "person.crop.circle", titleKey: "settings.row.profile")
+                }
+                Divider().opacity(0.2)
+                NavigationLink {
+                    GoalsView()
+                } label: {
+                    settingsRow(icon: "target", titleKey: "settings.row.goals")
+                }
+            }
+            .themedCard()
+        }
+    }
+
+    private func settingsRow(icon: String, titleKey: LocalizedStringKey) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(theme.accent)
+                .frame(width: 28)
+            Text(titleKey)
+                .font(theme.font.bodyMedium)
+                .foregroundStyle(theme.textPrimary)
+            Spacer()
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12))
+                .foregroundStyle(theme.textTertiary)
+        }
+        .padding(14)
     }
 
     private var themeSection: some View {
