@@ -162,10 +162,13 @@ final class MockWorkoutService: WorkoutServiceProtocol, @unchecked Sendable {
 final class MockServiceContainer {
     /// Auth is protocol-typed so production can inject the real
     /// AuthService while previews + Slice 0.5 tap-through keep using
-    /// MockAuthService. Slices 2–8 will follow the same pattern as
-    /// each domain's concrete service lands.
+    /// MockAuthService. Slices 2–8 follow the same pattern as each
+    /// domain's concrete service lands.
     let auth: any AuthServiceProtocol
-    let nutrition = MockNutritionService()
+    /// Slice 2.4b: nutrition is now protocol-typed too. Production injects
+    /// the real `NutritionService` (SwiftData-backed stale-while-revalidate
+    /// cache); previews + tap-through keep `MockNutritionService`.
+    let nutrition: any NutritionServiceProtocol
     let products = MockProductsService()
     let meals = MockMealsService()
     let mealPlan = MockMealPlanService()
@@ -174,9 +177,11 @@ final class MockServiceContainer {
     let exercises = MockExercisesService()
     let workouts = MockWorkoutService()
 
-    init(auth: (any AuthServiceProtocol)? = nil) {
+    init(auth: (any AuthServiceProtocol)? = nil,
+         nutrition: (any NutritionServiceProtocol)? = nil) {
         let resolvedAuth = auth ?? MockAuthService()
         self.auth = resolvedAuth
+        self.nutrition = nutrition ?? MockNutritionService()
 
         #if DEBUG
         // Auto-login when the app is launched with `-uiAutoLogin carlos`.
@@ -193,5 +198,25 @@ final class MockServiceContainer {
             }
         }
         #endif
+    }
+
+    /// Production wiring: real AuthService + real NutritionService backed
+    /// by the live SwiftData store. The real NutritionService reads the
+    /// authenticated user's id from AuthService so its cache predicates and
+    /// `/api/v1/nutrition/daily/<date>` fetches scope to the right account.
+    ///
+    /// `FitTrackerApp.makeServiceContainer()` calls this on launch (except
+    /// when `-useMockAuth` forces the all-mock path for design review).
+    /// Kept as a factory rather than a flag inside `init` so the default
+    /// initializer stays pure-mock for previews and unit tests.
+    static func production() -> MockServiceContainer {
+        let auth = AuthService()
+        let api = APIClient(tokenProvider: KeychainTokenStore.shared)
+        let nutrition = NutritionService(
+            api: api,
+            context: PersistenceController.live.container.mainContext,
+            userId: { [weak auth] in auth?.currentUser?.id }
+        )
+        return MockServiceContainer(auth: auth, nutrition: nutrition)
     }
 }

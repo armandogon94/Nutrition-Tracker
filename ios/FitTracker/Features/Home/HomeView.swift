@@ -67,10 +67,17 @@ struct HomeView: View {
         isRefreshing = true
         defer { isRefreshing = false }
         // Meals come from @Query so we don't refetch via the service.
-        async let nutritionResult: DailyNutrition? = services.nutrition.dailyNutrition(for: Date())
-        async let goalResult: NutritionGoal? = services.nutrition.currentGoal()
-        nutrition = try? await nutritionResult
-        goal = try? await goalResult
+        //
+        // Both calls are @MainActor (NutritionServiceProtocol is main-actor
+        // isolated as of Slice 2.4b, where `nutrition` became a protocol
+        // existential so production can inject the real service). They hit
+        // the same MainActor-bound SwiftData context, so awaiting them in
+        // sequence keeps the existential on the main actor — `async let`
+        // would force a non-Sendable existential across an isolation
+        // boundary and fail strict concurrency. Each method is cache-first
+        // (stale-while-revalidate) so this stays fast.
+        nutrition = try? await services.nutrition.dailyNutrition(for: Date())
+        goal = try? await services.nutrition.currentGoal()
     }
 
     private var logMealFAB: some View {

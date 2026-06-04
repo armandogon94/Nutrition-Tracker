@@ -25,17 +25,19 @@ struct FitTrackerApp: App {
         }
     }
 
-    /// Production wiring: real AuthService against APIClient + Keychain.
-    /// Pass `-useMockAuth` at launch to fall back to the mock (used by
-    /// Slice 0.5 design-review screenshots and preview-driven testing).
+    /// Production wiring: real AuthService + real NutritionService against
+    /// APIClient + Keychain + the live SwiftData store (Slice 2.4b).
+    /// Pass `-useMockAuth` at launch to fall back to the all-mock container
+    /// (used by Slice 0.5 design-review screenshots and preview-driven
+    /// testing).
     @MainActor
     private static func makeServiceContainer() -> MockServiceContainer {
         #if DEBUG
         if ProcessInfo.processInfo.arguments.contains("-useMockAuth") {
-            return MockServiceContainer()  // mock auth path
+            return MockServiceContainer()  // all-mock path
         }
         #endif
-        return MockServiceContainer(auth: AuthService())
+        return MockServiceContainer.production()
     }
 }
 
