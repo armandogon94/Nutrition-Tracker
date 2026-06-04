@@ -36,6 +36,15 @@ enum HealthKitError: Error, Sendable, Equatable {
     case writeFailed(String)
 }
 
+/// A bodyweight reading carried out of the HealthKit boundary as a plain
+/// Sendable value (HKQuantitySample is neither Sendable nor exposed to the
+/// rest of the app). `weightKg` is the sample value converted to kilograms;
+/// `date` is the sample's end date, used by callers to judge freshness.
+struct BodyMassReading: Hashable, Sendable {
+    let weightKg: Double
+    let date: Date
+}
+
 @MainActor
 final class HealthKitService {
 
@@ -141,12 +150,20 @@ final class HealthKitService {
     /// no sample / no store / the user hasn't granted read access. Never
     /// throws for the "no data" case — callers (HomeView) must degrade to the
     /// profile's stored weight, so a nil is the expected quiet path.
+    func latestBodyMass() async throws -> Double? {
+        try await latestBodyMassReading()?.weightKg
+    }
+
+    /// The most recent bodyweight sample as a `BodyMassReading` (value in kg
+    /// + the sample's end date), or nil. The date lets the dashboard decide
+    /// whether the sample is fresh enough to override the profile weight
+    /// (Slice 2.6 TDEE refinement).
     ///
     /// Concurrency: HKQuantitySample isn't Sendable, so the injectable
     /// fetcher hands back the samples and ALL inspection (sort selection +
     /// unit conversion) happens here on the MainActor. We never let an
     /// HKQuantitySample cross an isolation boundary.
-    func latestBodyMass() async throws -> Double? {
+    func latestBodyMassReading() async throws -> BodyMassReading? {
         guard store != nil else { return nil }
         let bodyMassType = HKQuantityType(.bodyMass)
         let samples: [HKQuantitySample]
@@ -160,7 +177,10 @@ final class HealthKitService {
         guard let newest = samples.max(by: { $0.endDate < $1.endDate }) else {
             return nil
         }
-        return newest.quantity.doubleValue(for: .gramUnit(with: .kilo))
+        return BodyMassReading(
+            weightKg: newest.quantity.doubleValue(for: .gramUnit(with: .kilo)),
+            date: newest.endDate
+        )
     }
 
     /// Runs the real HKSampleQuery for the single most-recent bodyweight

@@ -304,6 +304,42 @@
         }
       }
     },
+    "home.tdee.fromHealth": {
+      "comment": "Hint shown when the TDEE estimate was refined using a recent Apple Health bodyweight sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjusted with Apple Health"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustado con Apple Health"
+          }
+        }
+      }
+    },
+    "home.tdee.label": {
+      "comment": "Label above the estimated daily energy expenditure (TDEE) on the dashboard.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimated daily burn"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasto diario estimado"
+          }
+        }
+      }
+    },
     "manual_entry_create_custom": {
       "extractionState": "manual",
       "localizations": {
