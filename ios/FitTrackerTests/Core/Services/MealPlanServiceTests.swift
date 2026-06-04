@@ -318,6 +318,83 @@ struct MealPlanServiceTests {
         #expect(stored.first?.checked == true, "check state must persist to SwiftData")
     }
 
+    // MARK: - Task 4.6 RED tests — offline correctness
+
+    @MainActor
+    @Test("move persists the new day locally even when the backend is unreachable")
+    func mealPlan_moveSurvivesOfflineBackend() async throws {
+        let (sut, ctx) = try makeSUT()
+
+        let planUUID = UUID(uuidString: Self.planId)!
+        let planEntity = MealPlanEntity(id: planUUID, userId: Self.userId,
+                                        weekStartDate: .now,
+                                        pendingSync: false, lastSyncedAt: .now)
+        ctx.insert(planEntity)
+        try ctx.save()
+
+        // Add an item so its product_id is tracked, then knock the network
+        // out for the subsequent move.
+        let primeItemId = "00000000-0000-0000-0000-0000000000F1"
+        MockURLProtocol.handler = { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 201,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            return (resp, Data(Self.itemJSON(id: primeItemId, day: 1,
+                                             mealType: "lunch",
+                                             productName: "Arroz").utf8))
+        }
+        let added = try await sut.addItem(toPlan: planUUID, dayIndex: 1,
+                                          mealType: .lunch,
+                                          product: MockData.products.first!,
+                                          servings: 1.0)
+
+        // Simulate offline: every request fails.
+        MockURLProtocol.handler = { _ in throw APIError.offline }
+
+        // The move throws (backend unreachable) but the local cache must
+        // already reflect the new day/slot — losing the user's drag is
+        // unacceptable (offline-first, ADR-0004 §4).
+        await #expect(throws: (any Error).self) {
+            try await sut.moveItem(added.id, toDay: 4, mealType: .dinner, inPlan: planUUID)
+        }
+
+        let stored = try ctx.fetch(FetchDescriptor<MealPlanItemEntity>())
+        #expect(stored.count == 1)
+        #expect(stored.first?.dayIndex == 4, "optimistic move persists offline")
+        #expect(stored.first?.mealType == MealType.dinner.rawValue)
+        #expect(stored.first?.pendingSync == true, "pending flag set for later retry")
+    }
+
+    @MainActor
+    @Test("check state persists locally even when the PATCH fails")
+    func shoppingList_checkSurvivesOfflineBackend() async throws {
+        let (sut, ctx) = try makeSUT()
+
+        let listUUID = UUID(uuidString: "00000000-0000-0000-0000-0000000000D9")!
+        let itemUUID = UUID(uuidString: "00000000-0000-0000-0000-0000000000E9")!
+        let listEntity = ShoppingListEntity(id: listUUID,
+                                            mealPlanId: UUID(uuidString: Self.planId)!,
+                                            generatedAt: .now)
+        let itemEntity = ShoppingListItemEntity(id: itemUUID, name: "Huevos",
+                                                quantity: "12 pzas",
+                                                category: ShoppingCategory.dairy.rawValue,
+                                                checked: false)
+        itemEntity.list = listEntity
+        listEntity.items = [itemEntity]
+        ctx.insert(listEntity)
+        try ctx.save()
+
+        MockURLProtocol.handler = { _ in throw APIError.offline }
+
+        await #expect(throws: (any Error).self) {
+            try await sut.setChecked(itemUUID, checked: true, listId: listUUID)
+        }
+
+        let stored = try ctx.fetch(FetchDescriptor<ShoppingListItemEntity>())
+        #expect(stored.first?.checked == true, "check persists locally while offline")
+        #expect(stored.first?.pendingSync == true, "pending flag set for later retry")
+    }
+
     @MainActor
     @Test("currentPlan reads the most recent plan from the SwiftData cache")
     func mealPlan_currentPlanReadsCache() async throws {
