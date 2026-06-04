@@ -45,8 +45,18 @@ final class HealthKitService {
     private let store: HKHealthStore?
     private(set) var isAuthorized: Bool = false
 
-    init(store: HKHealthStore? = HKHealthStore.isHealthDataAvailable() ? HKHealthStore() : nil) {
+    /// Slice 2.5: seam for the bodyweight READ query. HKHealthStore /
+    /// HKSampleQuery can't be mocked directly, so tests inject a closure
+    /// that returns the `[HKQuantitySample]` a real `.bodyMass` query would
+    /// yield (newest-first). In production this is nil and `latestBodyMass`
+    /// runs the real HKSampleQuery against `store`.
+    typealias BodyMassFetcher = @Sendable (_ sampleType: HKQuantityType) async throws -> [HKQuantitySample]
+    private let bodyMassFetcher: BodyMassFetcher?
+
+    init(store: HKHealthStore? = HKHealthStore.isHealthDataAvailable() ? HKHealthStore() : nil,
+         bodyMassFetcher: BodyMassFetcher? = nil) {
         self.store = store
+        self.bodyMassFetcher = bodyMassFetcher
     }
 
     /// The set of types we WRITE. Kept narrow; reads are added later.
@@ -67,6 +77,18 @@ final class HealthKitService {
         return set
     }()
 
+    /// The set of types we READ (Slice 2.5). Kept narrow per PHI minimization:
+    /// only bodyweight, used to refine the dashboard's TDEE when the user has
+    /// a fresher Health sample than their saved profile. Active energy is
+    /// reserved for a later slice.
+    static let readTypes: Set<HKObjectType> = {
+        var set: Set<HKObjectType> = []
+        if let bodyMass = HKObjectType.quantityType(forIdentifier: .bodyMass) {
+            set.insert(bodyMass)
+        }
+        return set
+    }()
+
     /// Request write permission for our nutrition types. Caller is
     /// MealService (or wherever the first log happens). Re-calling is
     /// safe — HealthKit no-ops if the user has already decided.
@@ -75,6 +97,21 @@ final class HealthKitService {
         do {
             try await store.requestAuthorization(toShare: Self.writeTypes, read: [])
             isAuthorized = true
+        } catch {
+            throw HealthKitError.unauthorized
+        }
+    }
+
+    /// Request READ permission for bodyweight (Slice 2.5). Requested at the
+    /// point the dashboard wants to refine TDEE, NOT at launch (Apple HIG).
+    /// Note: HealthKit deliberately hides whether the user *granted* a read
+    /// scope (to avoid leaking the absence of data), so we never inspect the
+    /// returned status — we just attempt the query and treat "no samples" the
+    /// same as "not authorized": both yield nil and fall back to the profile.
+    func requestBodyMassReadAuthorizationIfNeeded() async throws {
+        guard let store else { throw HealthKitError.unavailable }
+        do {
+            try await store.requestAuthorization(toShare: [], read: Self.readTypes)
         } catch {
             throw HealthKitError.unauthorized
         }
@@ -95,6 +132,58 @@ final class HealthKitService {
             try await store.save(samples)
         } catch {
             throw HealthKitError.writeFailed(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Bodyweight READ (Slice 2.5)
+
+    /// The most recent bodyweight sample, in kilograms, or nil when there is
+    /// no sample / no store / the user hasn't granted read access. Never
+    /// throws for the "no data" case — callers (HomeView) must degrade to the
+    /// profile's stored weight, so a nil is the expected quiet path.
+    ///
+    /// Concurrency: HKQuantitySample isn't Sendable, so the injectable
+    /// fetcher hands back the samples and ALL inspection (sort selection +
+    /// unit conversion) happens here on the MainActor. We never let an
+    /// HKQuantitySample cross an isolation boundary.
+    func latestBodyMass() async throws -> Double? {
+        guard store != nil else { return nil }
+        let bodyMassType = HKQuantityType(.bodyMass)
+        let samples: [HKQuantitySample]
+        if let bodyMassFetcher {
+            samples = try await bodyMassFetcher(bodyMassType)
+        } else {
+            samples = try await runBodyMassQuery(type: bodyMassType)
+        }
+        // The query sorts newest-first (endDate descending) and limits to 1,
+        // but be defensive: pick the max by endDate regardless of order.
+        guard let newest = samples.max(by: { $0.endDate < $1.endDate }) else {
+            return nil
+        }
+        return newest.quantity.doubleValue(for: .gramUnit(with: .kilo))
+    }
+
+    /// Runs the real HKSampleQuery for the single most-recent bodyweight
+    /// sample. Wrapped in a continuation so the callback-based HealthKit API
+    /// presents an async surface. Only used in production — tests inject
+    /// `bodyMassFetcher` instead.
+    private func runBodyMassQuery(type: HKQuantityType) async throws -> [HKQuantitySample] {
+        guard let store else { return [] }
+        let sort = NSSortDescriptor(key: HKSampleSortIdentifierEndDate, ascending: false)
+        return try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: nil,
+                limit: 1,
+                sortDescriptors: [sort]
+            ) { _, samples, error in
+                if let error {
+                    continuation.resume(throwing: HealthKitError.writeFailed(error.localizedDescription))
+                    return
+                }
+                continuation.resume(returning: (samples as? [HKQuantitySample]) ?? [])
+            }
+            store.execute(query)
         }
     }
 
