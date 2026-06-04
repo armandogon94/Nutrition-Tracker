@@ -1,149 +1,207 @@
 //
 //  HistoryView.swift
-//  Slice 0.5 mock — calendar of recent sessions, volume chart, PR list.
+//  Slice 8.2: the Progreso tab. A segmented control switches between three
+//  sections — Calendario (month grid + selected-day sessions), Análisis
+//  (volume trends + muscle distribution charts), and Records (sortable PRs).
+//  A toolbar Export button hands a CSV of the visible history to the system
+//  Share Sheet.
+//
+//  All data comes from `HistoryService` (protocol-injected via the service
+//  container), which aggregates the local SwiftData store — no network on
+//  this screen, so it stays responsive offline and on every re-render.
 //
 
 import SwiftUI
-import Charts
 
 struct HistoryView: View {
     @Environment(\.appTheme) private var theme
     @Environment(MockServiceContainer.self) private var services
+
+    @State private var section: HistorySection = .calendar
     @State private var sessions: [WorkoutSession] = []
-    @State private var prs: [PersonalRecord] = []
+    @State private var weeklyVolume: [WeeklyVolumePoint] = []
+    @State private var muscleVolume: [MuscleVolumePoint] = []
+    @State private var prs: [ExercisePR] = []
+    @State private var exerciseNames: [UUID: String] = [:]
+    @State private var isLoading = true
+    @State private var exportURL: URL?
+
+    /// How far back the screen looks. 52 weeks ≈ a year of history.
+    private let lookbackWeeks = 52
 
     var body: some View {
         ZStack {
             ThemedBackdrop()
-            ScrollView {
-                VStack(spacing: 14) {
-                    summaryRow
-                    VolumeChartView(sessions: sessions)
-                    PRListView(prs: prs)
-                    Spacer(minLength: 60)
-                }
-                .padding(16)
-            }
-            .scrollContentBackground(.hidden)
+            content
         }
-        .navigationTitle("Progreso")
-        .task {
-            let interval = DateInterval(start: Date(timeIntervalSinceNow: -86400 * 60), end: Date())
-            sessions = (try? await services.workouts.completedSessions(in: interval)) ?? []
-            prs = (try? await services.workouts.personalRecords()) ?? []
+        .navigationTitle(Text("history.title"))
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                exportButton
+            }
+        }
+        .task { await load() }
+        .refreshable { await load() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        VStack(spacing: 0) {
+            Picker("history.section", selection: $section) {
+                ForEach(HistorySection.allCases, id: \.self) { s in
+                    Text(s.titleKey).tag(s)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 4)
+
+            if isLoading && sessions.isEmpty {
+                loadingState
+            } else {
+                ScrollView {
+                    VStack(spacing: 14) {
+                        summaryRow
+                        switch section {
+                        case .calendar:
+                            HistoryCalendarView(sessions: sessions, exerciseNames: exerciseNames)
+                        case .analytics:
+                            VolumeTrendChartView(points: weeklyVolume)
+                            MuscleDistributionChartView(points: muscleVolume)
+                        case .records:
+                            PRListView(prs: prs)
+                        }
+                        Spacer(minLength: 60)
+                    }
+                    .padding(16)
+                }
+                .scrollContentBackground(.hidden)
+            }
         }
     }
 
+    private var loadingState: some View {
+        VStack {
+            Spacer()
+            ProgressView()
+                .controlSize(.large)
+                .tint(theme.accent)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityLabel(Text("common.loading"))
+    }
+
+    // MARK: - Summary
+
     private var summaryRow: some View {
         HStack(spacing: 12) {
-            statTile(value: "\(sessions.count)", label: "Sesiones", color: theme.accent)
-            statTile(value: "\(Int(totalVolume / 1000))k", label: "Volumen kg", color: theme.accentSecondary)
-            statTile(value: "\(prs.count)", label: "PRs", color: theme.positive)
+            statTile(value: "\(sessions.count)", labelKey: "history.stat.sessions", color: theme.accent)
+            statTile(value: compactVolume, labelKey: "history.stat.volume", color: theme.accentSecondary)
+            statTile(value: "\(prs.count)", labelKey: "history.stat.prs", color: theme.positive)
         }
     }
 
     private var totalVolume: Double { sessions.reduce(0) { $0 + $1.totalVolume } }
 
-    private func statTile(value: String, label: String, color: Color) -> some View {
+    /// "12.3k" style compact volume in kilograms.
+    private var compactVolume: String {
+        let v = totalVolume
+        if v >= 1000 {
+            return String(format: "%.1fk", v / 1000)
+        }
+        return String(Int(v))
+    }
+
+    private func statTile(value: String, labelKey: LocalizedStringKey, color: Color) -> some View {
         VStack(spacing: 6) {
             Text(value)
                 .font(theme.font.heroNumeral)
                 .foregroundStyle(theme.textPrimary)
+                .lineLimit(1)
                 .minimumScaleFactor(0.5)
-            Text(label)
+            Text(labelKey)
                 .font(theme.font.caption)
                 .foregroundStyle(theme.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 16)
         .background(color.opacity(0.18), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .accessibilityElement(children: .combine)
+    }
+
+    // MARK: - Export
+
+    @ViewBuilder
+    private var exportButton: some View {
+        if let url = exportURL, !sessions.isEmpty {
+            ShareLink(item: url) {
+                Label("history.export", systemImage: "square.and.arrow.up")
+            }
+        } else {
+            // Disabled placeholder keeps the toolbar slot stable while data loads.
+            Label("history.export", systemImage: "square.and.arrow.up")
+                .labelStyle(.iconOnly)
+                .foregroundStyle(theme.textTertiary)
+                .accessibilityHidden(true)
+        }
+    }
+
+    // MARK: - Data loading
+
+    private func load() async {
+        isLoading = true
+        defer { isLoading = false }
+        let interval = DateInterval(
+            start: Date(timeIntervalSinceNow: -Double(lookbackWeeks) * 7 * 86_400),
+            end: Date()
+        )
+        async let s = services.history.sessions(in: interval)
+        async let wv = services.history.volumeByWeek(weeks: 12)
+        async let mv = services.history.volumeByMuscle(weeks: lookbackWeeks)
+        async let p = services.history.prs()
+
+        sessions = (try? await s) ?? []
+        weeklyVolume = (try? await wv) ?? []
+        muscleVolume = (try? await mv) ?? []
+        prs = (try? await p) ?? []
+
+        // Resolve exercise names from the PR list + any exercise the sessions touch.
+        var names: [UUID: String] = [:]
+        for pr in prs { names[pr.exerciseId] = pr.exerciseName }
+        for ex in MockData.exercises where names[ex.id] == nil { names[ex.id] = ex.name }
+        exerciseNames = names
+
+        // Pre-build the CSV so ShareLink has a ready file URL.
+        exportURL = try? WorkoutCSVExporter.writeCSV(sessions: sessions, exerciseNames: names)
     }
 }
 
-struct VolumeChartView: View {
-    @Environment(\.appTheme) private var theme
-    let sessions: [WorkoutSession]
+/// The three sections of the Progreso tab.
+enum HistorySection: String, CaseIterable, Hashable {
+    case calendar
+    case analytics
+    case records
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("VOLUMEN POR SESIÓN")
-                .font(theme.font.captionMedium).tracking(1.4)
-                .foregroundStyle(theme.textTertiary)
-            if sessions.isEmpty {
-                Text("Sin datos aún")
-                    .font(theme.font.body).foregroundStyle(theme.textTertiary)
-                    .frame(maxWidth: .infinity, minHeight: 180)
-            } else {
-                Chart {
-                    ForEach(sessions) { session in
-                        BarMark(
-                            x: .value("Día", session.startedAt, unit: .day),
-                            y: .value("Volumen", session.totalVolume)
-                        )
-                        .foregroundStyle(theme.accent.gradient)
-                    }
-                }
-                .frame(height: 180)
-                .chartYAxis {
-                    AxisMarks { _ in
-                        AxisGridLine().foregroundStyle(theme.textTertiary.opacity(0.2))
-                        AxisValueLabel().foregroundStyle(theme.textTertiary)
-                    }
-                }
-                .chartXAxis {
-                    AxisMarks(values: .stride(by: .day, count: 4)) { _ in
-                        AxisValueLabel(format: .dateTime.day().month(.abbreviated))
-                            .foregroundStyle(theme.textTertiary)
-                    }
-                }
-            }
+    var titleKey: LocalizedStringKey {
+        switch self {
+        case .calendar:  "history.section.calendar"
+        case .analytics: "history.section.analytics"
+        case .records:   "history.section.records"
         }
-        .padding(16)
-        .themedCard()
     }
 }
 
-struct PRListView: View {
-    @Environment(\.appTheme) private var theme
-    let prs: [PersonalRecord]
+#Preview("History — Liquid Glass") {
+    NavigationStack { HistoryView() }
+        .environment(\.appTheme, LiquidGlassTheme())
+        .environment(MockServiceContainer())
+        .preferredColorScheme(.dark)
+}
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("PRs PERSONALES")
-                .font(theme.font.captionMedium).tracking(1.4)
-                .foregroundStyle(theme.textTertiary)
-            ForEach(prs) { pr in
-                HStack(spacing: 12) {
-                    Image(systemName: "trophy.fill")
-                        .foregroundStyle(theme.positive)
-                        .frame(width: 32, height: 32)
-                        .background(theme.positive.opacity(0.18), in: Circle())
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(pr.exerciseName)
-                            .font(theme.font.bodyMedium)
-                            .foregroundStyle(theme.textPrimary)
-                        Text(dateLabel(pr.achievedAt))
-                            .font(theme.font.caption)
-                            .foregroundStyle(theme.textTertiary)
-                    }
-                    Spacer()
-                    Text("\(pr.weightKg, specifier: "%.0f") × \(pr.reps)")
-                        .font(theme.font.titleCompact)
-                        .foregroundStyle(theme.textPrimary)
-                }
-                if pr.id != prs.last?.id {
-                    Divider().opacity(0.18)
-                }
-            }
-        }
-        .padding(16)
-        .themedCard()
-    }
-
-    private func dateLabel(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "d MMM yyyy"
-        f.locale = Locale(identifier: "es_419")
-        return f.string(from: date)
-    }
+#Preview("History — Health Cards") {
+    NavigationStack { HistoryView() }
+        .environment(\.appTheme, HealthCardsTheme())
+        .environment(MockServiceContainer())
 }
