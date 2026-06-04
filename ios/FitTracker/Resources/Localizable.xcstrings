@@ -1007,6 +1007,190 @@
           }
         }
       }
+    },
+    "workout.endWorkout": {
+      "comment": "Toolbar button to finish the active workout session.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Finish" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Terminar" } }
+      }
+    },
+    "workout.endWorkout.confirm.title": {
+      "comment": "Confirmation dialog title when ending a workout.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Finish workout?" } },
+        "es": { "stringUnit": { "state": "translated", "value": "¿Terminar entrenamiento?" } }
+      }
+    },
+    "workout.endWorkout.confirm.message": {
+      "comment": "Confirmation dialog body when ending a workout.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Your session will be saved and written to Apple Health." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Tu sesión se guardará y se registrará en Salud de Apple." } }
+      }
+    },
+    "workout.sessionComplete": {
+      "comment": "Header shown after all exercises are done.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Workout complete" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Entrenamiento completo" } }
+      }
+    },
+    "workout.exerciseProgress": {
+      "comment": "Eyebrow above the current exercise. %1$lld = current, %2$lld = total.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "EXERCISE %1$lld / %2$lld" } },
+        "es": { "stringUnit": { "state": "translated", "value": "EJERCICIO %1$lld / %2$lld" } }
+      }
+    },
+    "workout.setOfTarget": {
+      "comment": "Set counter. %1$lld = current set, %2$lld = target sets.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set %1$lld of %2$lld" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Set %1$lld de %2$lld" } }
+      }
+    },
+    "workout.weightKg": {
+      "comment": "Label for the weight input field (kilograms).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Weight (kg)" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Peso (kg)" } }
+      }
+    },
+    "workout.reps": {
+      "comment": "Label for the reps input field.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Reps" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Reps" } }
+      }
+    },
+    "workout.setComplete": {
+      "comment": "Primary button to log the current set.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set complete" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Set completo" } }
+      }
+    },
+    "workout.loggedSets": {
+      "comment": "Section header listing sets logged so far for the current exercise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "LOGGED SETS" } },
+        "es": { "stringUnit": { "state": "translated", "value": "SETS REGISTRADOS" } }
+      }
+    },
+    "workout.noSetsYet": {
+      "comment": "Placeholder when no sets have been logged for the current exercise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "None yet" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Aún ninguno" } }
+      }
+    },
+    "workout.setLabel": {
+      "comment": "Row label for a logged set. %lld = set number.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Set %lld" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Set %lld" } }
+      }
+    },
+    "workout.nextExercise": {
+      "comment": "Button advancing to the next exercise in the session.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Next exercise" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Siguiente ejercicio" } }
+      }
+    },
+    "workout.rest": {
+      "comment": "Eyebrow label on the rest timer screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "REST" } },
+        "es": { "stringUnit": { "state": "translated", "value": "DESCANSO" } }
+      }
+    },
+    "workout.skip": {
+      "comment": "Button to skip the rest timer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Skip" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Saltar" } }
+      }
+    },
+    "workout.addThirty": {
+      "comment": "Button to add 30 seconds to the rest timer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "+30s" } },
+        "es": { "stringUnit": { "state": "translated", "value": "+30s" } }
+      }
+    },
+    "workout.pr.title": {
+      "comment": "Headline of the personal-record celebration overlay.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "New PR!" } },
+        "es": { "stringUnit": { "state": "translated", "value": "¡Nuevo récord!" } }
+      }
+    },
+    "workout.pr.subtitle": {
+      "comment": "Subtitle of the PR overlay. %@ = exercise name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Personal best on %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Mejor marca en %@" } }
+      }
+    },
+    "workout.restOver.title": {
+      "comment": "Local notification title when the rest timer ends.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rest over" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Descanso terminado" } }
+      }
+    },
+    "workout.restOver.body": {
+      "comment": "Local notification body when the rest timer ends (no exercise name).",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Time for your next set." } },
+        "es": { "stringUnit": { "state": "translated", "value": "Es hora de tu siguiente set." } }
+      }
+    },
+    "workout.restOver.bodyNamed": {
+      "comment": "Local notification body naming the next exercise. %@ = exercise name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Time for your next set: %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Es hora de tu siguiente set: %@" } }
+      }
+    },
+    "workout.liveActivity.restingOn": {
+      "comment": "Live Activity label. %@ = exercise name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Resting · %@" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Descanso · %@" } }
+      }
+    },
+    "workout.liveActivity.rest": {
+      "comment": "Short Live Activity label for the rest timer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Rest" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Descanso" } }
+      }
     }
   },
   "version": "1.0"
