@@ -277,3 +277,73 @@ struct WorkoutProgramDTO: Codable, Sendable {
     let is_preset: Bool
     let days: [WorkoutProgramDayDTO]
 }
+
+// MARK: - Workout Sessions + Sets + PRs (Slice 7)
+
+/// POST /api/v1/workouts/sessions request body. Mirrors backend
+/// `SessionCreate`. `program_id` / `program_day_id` are optional so an
+/// ad-hoc (program-less) session is representable; today's flow always
+/// supplies them from the chosen program day.
+struct SessionCreateRequest: Codable, Sendable {
+    let program_id: String?
+    let program_day_id: String?
+    let started_at: Date
+}
+
+/// POST /api/v1/workouts/sessions/{id}/sets request body. Mirrors backend
+/// `SetCreate`. `weight_kg` is optional (bodyweight movements) and `rpe`
+/// is reserved for a later slice; we send it nil for now.
+struct SetCreateRequest: Codable, Sendable {
+    let exercise_id: String
+    let set_number: Int
+    let reps: Int
+    let weight_kg: Double?
+    let rpe: Double?
+}
+
+/// PATCH /api/v1/workouts/sessions/{id}/complete request body. Mirrors
+/// backend `SessionComplete`.
+struct SessionCompleteRequest: Codable, Sendable {
+    let notes: String?
+}
+
+/// Response shape for a single logged set. Mirrors backend `SetResponse`.
+/// The nested `exercise` is the full ExerciseDTO; we only read its id +
+/// name for the on-device row, but decode the whole object to stay tolerant
+/// of the contract.
+struct WorkoutSetDTO: Codable, Sendable {
+    let id: String
+    let exercise_id: String
+    let exercise: ExerciseDTO
+    let set_number: Int
+    let reps: Int
+    let weight_kg: Double?
+    let rpe: Double?
+    let is_pr: Bool
+    let completed_at: Date
+}
+
+/// Response shape for a workout session. Mirrors backend `SessionResponse`.
+struct WorkoutSessionDTO: Codable, Sendable {
+    let id: String
+    let user_id: String
+    let program_id: String?
+    let program_day_id: String?
+    let started_at: Date
+    let completed_at: Date?
+    let duration_minutes: Int?
+    let notes: String?
+    let sets: [WorkoutSetDTO]
+}
+
+/// Response shape for a personal record. Mirrors backend
+/// `PersonalRecordResponse`. `estimated_1rm` is the comparison key the
+/// backend uses for PR detection (avg of Brzycki + Epley).
+struct PersonalRecordDTO: Codable, Sendable {
+    let id: String
+    let exercise: ExerciseDTO
+    let max_weight_kg: Double?
+    let max_reps_at_weight: Int?
+    let estimated_1rm: Double?
+    let achieved_at: Date
+}
