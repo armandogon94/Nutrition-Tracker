@@ -35,6 +35,8 @@
 	<string>FitTracker writes dietary intake and completed workouts so they appear in the Health app.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Attach photos of meals from your photo library.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>FitTracker sends rest timer alerts and daily reminders.</string>
 </dict>
