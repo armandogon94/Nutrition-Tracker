@@ -110,3 +110,23 @@ protocol WorkoutServiceProtocol: AnyObject, Sendable {
     func completedSessions(in: DateInterval) async throws -> [WorkoutSession]
     func personalRecords() async throws -> [PersonalRecord]
 }
+
+// MARK: - History + Analytics (Slice 8)
+
+/// On-device aggregation surface for the History + Analytics screens.
+/// All methods read the local SwiftData store (no network) so charts can
+/// re-aggregate cheaply on every scroll/filter change. PR + 1RM logic
+/// mirrors the backend `workout_service.py`. See `HistoryService`.
+protocol HistoryServiceProtocol: AnyObject, Sendable {
+    /// Completed sessions whose `startedAt` falls inside `interval`,
+    /// newest first.
+    func sessions(in interval: DateInterval) async throws -> [WorkoutSession]
+    /// Contiguous, zero-filled weekly volume buckets (oldest first).
+    func volumeByWeek(weeks: Int) async throws -> [WeeklyVolumePoint]
+    /// Volume grouped by each exercise's primary muscle, descending.
+    func volumeByMuscle(weeks: Int) async throws -> [MuscleVolumePoint]
+    /// One PR (best estimated 1RM) per exercise, descending.
+    func prs() async throws -> [ExercisePR]
+    /// Per-session best-set progression for one exercise, oldest first.
+    func exerciseProgression(exerciseId: UUID) async throws -> [ProgressionPoint]
+}
