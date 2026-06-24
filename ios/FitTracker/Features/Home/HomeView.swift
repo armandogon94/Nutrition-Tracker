@@ -14,6 +14,7 @@ struct HomeView: View {
 
     @State private var nutrition: DailyNutrition?
     @State private var goal: NutritionGoal?
+    @State private var refinedTDEE: RefinedTDEE?
     @State private var showScan = false
     @State private var isRefreshing = false
 
@@ -67,10 +68,32 @@ struct HomeView: View {
         isRefreshing = true
         defer { isRefreshing = false }
         // Meals come from @Query so we don't refetch via the service.
-        async let nutritionResult: DailyNutrition? = services.nutrition.dailyNutrition(for: Date())
-        async let goalResult: NutritionGoal? = services.nutrition.currentGoal()
-        nutrition = try? await nutritionResult
-        goal = try? await goalResult
+        //
+        // Both calls are @MainActor (NutritionServiceProtocol is main-actor
+        // isolated as of Slice 2.4b, where `nutrition` became a protocol
+        // existential so production can inject the real service). They hit
+        // the same MainActor-bound SwiftData context, so awaiting them in
+        // sequence keeps the existential on the main actor — `async let`
+        // would force a non-Sendable existential across an isolation
+        // boundary and fail strict concurrency. Each method is cache-first
+        // (stale-while-revalidate) so this stays fast.
+        nutrition = try? await services.nutrition.dailyNutrition(for: Date())
+        goal = try? await services.nutrition.currentGoal()
+        await refineTDEE()
+    }
+
+    /// Slice 2.6: refine the displayed daily-burn estimate from a FRESH
+    /// HealthKit bodyweight sample when one exists, else fall back to the
+    /// profile weight. Quietly no-ops when there's no profile / no Health
+    /// access — the hero card just omits the burn chip.
+    @MainActor
+    private func refineTDEE() async {
+        guard let profile = try? await services.profile.profile() else {
+            refinedTDEE = nil
+            return
+        }
+        let sample = try? await HealthKitService.shared.latestBodyMassReading()
+        refinedTDEE = HomeViewModel.refineTDEE(profile: profile, healthKit: sample)
     }
 
     private var logMealFAB: some View {
@@ -131,10 +154,43 @@ struct HomeView: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+
+            if let refinedTDEE {
+                tdeeChip(refinedTDEE)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .themedCard()
+    }
+
+    /// Slice 2.6: estimated daily energy burn (TDEE). When it was refined
+    /// from a recent Apple Health bodyweight sample, an inline hint with the
+    /// Health glyph tells the user where the number came from.
+    private func tdeeChip(_ refined: RefinedTDEE) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "flame.fill")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(theme.accentSecondary)
+            Text("\(Text("home.tdee.label")) · \(Int(refined.tdee)) kcal")
+                .font(theme.font.caption)
+                .foregroundStyle(theme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            if refined.usedHealthKit {
+                Spacer(minLength: 6)
+                HStack(spacing: 3) {
+                    Image(systemName: "heart.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text("home.tdee.fromHealth")
+                        .font(theme.font.caption)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                .foregroundStyle(theme.positive)
+            }
+        }
+        .padding(.top, 4)
     }
 
     private func macroLine(_ label: String, value: Double, goal: Double, color: Color) -> some View {

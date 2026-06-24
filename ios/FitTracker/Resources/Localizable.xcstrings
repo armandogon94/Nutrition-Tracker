@@ -304,6 +304,366 @@
         }
       }
     },
+    "goal.preset.fatLoss": {
+      "comment": "Goal preset name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fat loss"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pérdida de grasa"
+          }
+        }
+      }
+    },
+    "goal.preset.hint.fatLoss": {
+      "comment": "Calorie delta for fat-loss preset.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−500 kcal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "−500 kcal"
+          }
+        }
+      }
+    },
+    "goal.preset.hint.leanBulk": {
+      "comment": "Calorie delta for lean-bulk preset.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+250 kcal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+250 kcal"
+          }
+        }
+      }
+    },
+    "goal.preset.hint.maintenance": {
+      "comment": "Calorie delta for maintenance preset.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0 kcal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "0 kcal"
+          }
+        }
+      }
+    },
+    "goal.preset.hint.muscleGain": {
+      "comment": "Calorie delta for muscle-gain preset.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+500 kcal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+500 kcal"
+          }
+        }
+      }
+    },
+    "goal.preset.leanBulk": {
+      "comment": "Goal preset name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lean bulk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volumen ligero"
+          }
+        }
+      }
+    },
+    "goal.preset.maintenance": {
+      "comment": "Goal preset name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Maintenance"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mantenimiento"
+          }
+        }
+      }
+    },
+    "goal.preset.muscleGain": {
+      "comment": "Goal preset name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muscle gain"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ganancia muscular"
+          }
+        }
+      }
+    },
+    "goals.mode.custom": {
+      "comment": "Segment: customize macros manually.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personalizar"
+          }
+        }
+      }
+    },
+    "goals.mode.presets": {
+      "comment": "Segment: choose a preset goal.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Presets"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preestablecidos"
+          }
+        }
+      }
+    },
+    "goals.row.calories": {
+      "comment": "Custom goal row label.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calories"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calorías"
+          }
+        }
+      }
+    },
+    "goals.row.carbs": {
+      "comment": "Custom goal row label.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carbs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carbos"
+          }
+        }
+      }
+    },
+    "goals.row.fat": {
+      "comment": "Custom goal row label.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Grasa"
+          }
+        }
+      }
+    },
+    "goals.row.protein": {
+      "comment": "Custom goal row label.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protein"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proteína"
+          }
+        }
+      }
+    },
+    "goals.save": {
+      "comment": "Save the selected goal.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save goal"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar meta"
+          }
+        }
+      }
+    },
+    "goals.saved": {
+      "comment": "Confirmation after saving the goal.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Goal saved"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meta guardada"
+          }
+        }
+      }
+    },
+    "goals.warning.lowCalories": {
+      "comment": "Warn when daily calories are below the recommended floor.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Below the recommended calorie minimum — consult a professional."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Meta por debajo del mínimo recomendado — consulta a un profesional."
+          }
+        }
+      }
+    },
+    "goals.warning.lowProtein": {
+      "comment": "Warn when protein is below 0.8 g/kg bodyweight.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Protein below 0.8 g/kg bodyweight."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proteína por debajo de 0.8 g/kg de peso corporal."
+          }
+        }
+      }
+    },
+    "home.tdee.fromHealth": {
+      "comment": "Hint shown when the TDEE estimate was refined using a recent Apple Health bodyweight sample.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Adjusted with Apple Health"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajustado con Apple Health"
+          }
+        }
+      }
+    },
+    "home.tdee.label": {
+      "comment": "Label above the estimated daily energy expenditure (TDEE) on the dashboard.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimated daily burn"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gasto diario estimado"
+          }
+        }
+      }
+    },
     "manual_entry_create_custom": {
       "extractionState": "manual",
       "localizations": {
@@ -678,6 +1038,60 @@
         }
       }
     },
+    "profile.error.generic": {
+      "comment": "Generic profile save failure.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar. Inténtalo de nuevo."
+          }
+        }
+      }
+    },
+    "profile.save": {
+      "comment": "Save the profile body fields.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Save profile"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardar perfil"
+          }
+        }
+      }
+    },
+    "profile.saved": {
+      "comment": "Confirmation after saving the profile.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile saved"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil guardado"
+          }
+        }
+      }
+    },
     "programs.daysPerWeek": {
       "comment": "Days per week label e.g. '6 días/sem'.",
       "extractionState": "manual",
@@ -1004,6 +1418,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "Escáner no soportado"
+          }
+        }
+      }
+    },
+    "settings.row.goals": {
+      "comment": "Settings row that opens the goals editor.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "My goals"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mis metas"
+          }
+        }
+      }
+    },
+    "settings.row.profile": {
+      "comment": "Settings row that opens the profile editor.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profile"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Perfil"
+          }
+        }
+      }
+    },
+    "settings.section.account": {
+      "comment": "Settings section header for profile + goals.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ACCOUNT"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CUENTA"
           }
         }
       }

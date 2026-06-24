@@ -121,6 +121,18 @@ final class MockProfileService: ProfileServiceProtocol {
     func updateProfile(_ profile: UserProfile) async throws { _profile = profile }
     func goal() async throws -> NutritionGoal { _goal }
     func updateGoal(_ goal: NutritionGoal) async throws { _goal = goal }
+
+    /// Mirrors the real service's preset path: recompute macros locally from
+    /// the stored profile's TDEE + preset adjustment so the preview reflects
+    /// the selection without a backend.
+    func updatePreset(_ preset: GoalPreset) async throws {
+        let bmr = TDEECalculator.bmr(
+            weightKg: _profile.weightKg, heightCm: _profile.heightCm,
+            age: _profile.age, sex: _profile.sex
+        )
+        let tdee = TDEECalculator.tdee(bmr: bmr, activity: _profile.activity)
+        _goal = TDEECalculator.macros(tdee: tdee, goal: preset, weightKg: _profile.weightKg)
+    }
 }
 
 // MARK: - Programs
@@ -162,21 +174,32 @@ final class MockWorkoutService: WorkoutServiceProtocol, @unchecked Sendable {
 final class MockServiceContainer {
     /// Auth is protocol-typed so production can inject the real
     /// AuthService while previews + Slice 0.5 tap-through keep using
-    /// MockAuthService. Slices 2–8 will follow the same pattern as
-    /// each domain's concrete service lands.
+    /// MockAuthService. Slices 2–8 follow the same pattern as each
+    /// domain's concrete service lands.
     let auth: any AuthServiceProtocol
-    let nutrition = MockNutritionService()
+    /// Slice 2.4b: nutrition is now protocol-typed too. Production injects
+    /// the real `NutritionService` (SwiftData-backed stale-while-revalidate
+    /// cache); previews + tap-through keep `MockNutritionService`.
+    let nutrition: any NutritionServiceProtocol
     let products = MockProductsService()
     let meals = MockMealsService()
     let mealPlan = MockMealPlanService()
-    let profile = MockProfileService()
+    /// Slice 5.2: profile is protocol-typed so production injects the real
+    /// `ProfileService` (backend profile + TDEE + goals). ProfileView /
+    /// TDEECalculatorView / GoalsView / SettingsView consume it through
+    /// `any ProfileServiceProtocol` unchanged; previews keep the mock.
+    let profile: any ProfileServiceProtocol
     let programs = MockProgramsService()
     let exercises = MockExercisesService()
     let workouts = MockWorkoutService()
 
-    init(auth: (any AuthServiceProtocol)? = nil) {
+    init(auth: (any AuthServiceProtocol)? = nil,
+         nutrition: (any NutritionServiceProtocol)? = nil,
+         profile: (any ProfileServiceProtocol)? = nil) {
         let resolvedAuth = auth ?? MockAuthService()
         self.auth = resolvedAuth
+        self.nutrition = nutrition ?? MockNutritionService()
+        self.profile = profile ?? MockProfileService()
 
         #if DEBUG
         // Auto-login when the app is launched with `-uiAutoLogin carlos`.
@@ -193,5 +216,26 @@ final class MockServiceContainer {
             }
         }
         #endif
+    }
+
+    /// Production wiring: real AuthService + real NutritionService backed
+    /// by the live SwiftData store. The real NutritionService reads the
+    /// authenticated user's id from AuthService so its cache predicates and
+    /// `/api/v1/nutrition/daily/<date>` fetches scope to the right account.
+    ///
+    /// `FitTrackerApp.makeServiceContainer()` calls this on launch (except
+    /// when `-useMockAuth` forces the all-mock path for design review).
+    /// Kept as a factory rather than a flag inside `init` so the default
+    /// initializer stays pure-mock for previews and unit tests.
+    static func production() -> MockServiceContainer {
+        let auth = AuthService()
+        let api = APIClient(tokenProvider: KeychainTokenStore.shared)
+        let nutrition = NutritionService(
+            api: api,
+            context: PersistenceController.live.container.mainContext,
+            userId: { [weak auth] in auth?.currentUser?.id }
+        )
+        let profile = ProfileService(api: api)
+        return MockServiceContainer(auth: auth, nutrition: nutrition, profile: profile)
     }
 }

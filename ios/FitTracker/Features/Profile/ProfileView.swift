@@ -10,6 +10,9 @@ struct ProfileView: View {
     @Environment(MockServiceContainer.self) private var services
 
     @State private var profile: UserProfile = MockData.profile
+    @State private var isSaving = false
+    @State private var savedConfirmation = false
+    @State private var saveError = false
 
     var body: some View {
         ZStack {
@@ -19,12 +22,22 @@ struct ProfileView: View {
                     headerCard
                     formCard
                     TDEECalculatorView(profile: profile)
+                    saveButton
+                    if savedConfirmation {
+                        Text("profile.saved")
+                            .font(theme.font.caption)
+                            .foregroundStyle(theme.positive)
+                    } else if saveError {
+                        Text("profile.error.generic")
+                            .font(theme.font.caption)
+                            .foregroundStyle(theme.negative)
+                    }
                     NavigationLink {
                         GoalsView()
                     } label: {
                         HStack {
                             Image(systemName: "target")
-                            Text("Mis metas")
+                            Text("settings.row.goals")
                             Spacer()
                             Image(systemName: "chevron.right").font(.system(size: 12))
                         }
@@ -41,6 +54,36 @@ struct ProfileView: View {
         .navigationTitle("Perfil")
         .task {
             profile = (try? await services.profile.profile()) ?? MockData.profile
+        }
+    }
+
+    private var saveButton: some View {
+        Button {
+            Task { await save() }
+        } label: {
+            HStack {
+                if isSaving { ProgressView().tint(.white) }
+                Text("profile.save").font(theme.font.bodyMedium)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(theme.accent, in: RoundedRectangle(cornerRadius: theme.radii.card, style: .continuous))
+            .foregroundStyle(.white)
+        }
+        .disabled(isSaving)
+    }
+
+    @MainActor
+    private func save() async {
+        isSaving = true
+        defer { isSaving = false }
+        savedConfirmation = false
+        saveError = false
+        do {
+            try await services.profile.updateProfile(profile)
+            savedConfirmation = true
+        } catch {
+            saveError = true
         }
     }
 
@@ -131,15 +174,10 @@ struct TDEECalculatorView: View {
     @Environment(\.appTheme) private var theme
     let profile: UserProfile
 
-    private var bmr: Double {
-        // Mifflin-St Jeor
-        let base = 10 * profile.weightKg + 6.25 * profile.heightCm - 5 * Double(profile.age)
-        return profile.sex == .male ? base + 5 : base - 161
-    }
-    private var tdee: Double { bmr * profile.activity.multiplier }
-    private var protein: Int { Int(profile.weightKg * 2) }
-    private var fat: Int { Int(tdee * 0.25 / 9) }
-    private var carbs: Int { Int((tdee - Double(protein * 4) - Double(fat * 9)) / 4) }
+    /// Slice 5.3: the preview now comes from the shared `TDEECalculator`
+    /// (via `TDEEPreview`) instead of a second inline copy of the formula,
+    /// so it can never drift from the backend / GoalsView numbers.
+    private var preview: TDEEPreview { TDEEPreview(profile: profile) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -147,13 +185,13 @@ struct TDEECalculatorView: View {
                 .font(theme.font.captionMedium).tracking(1.4)
                 .foregroundStyle(theme.textTertiary)
             HStack(spacing: 10) {
-                tile("BMR", value: "\(Int(bmr))", color: theme.accentSecondary)
-                tile("TDEE", value: "\(Int(tdee))", color: theme.accent)
+                tile("BMR", value: "\(Int(preview.bmr))", color: theme.accentSecondary)
+                tile("TDEE", value: "\(Int(preview.tdee))", color: theme.accent)
             }
             HStack(spacing: 10) {
-                tile("Proteína", value: "\(protein)g", color: theme.categoryColors[0])
-                tile("Carbos", value: "\(carbs)g", color: theme.categoryColors[1])
-                tile("Grasa", value: "\(fat)g", color: theme.categoryColors[2])
+                tile("Proteína", value: "\(preview.proteinG)g", color: theme.categoryColors[0])
+                tile("Carbos", value: "\(preview.carbsG)g", color: theme.categoryColors[1])
+                tile("Grasa", value: "\(preview.fatG)g", color: theme.categoryColors[2])
             }
         }
         .padding(16)
@@ -179,15 +217,28 @@ struct TDEECalculatorView: View {
 struct GoalsView: View {
     @Environment(\.appTheme) private var theme
     @Environment(MockServiceContainer.self) private var services
-    @State private var goal: NutritionGoal = MockData.goal
-    @State private var mode: Int = 0   // 0: presets, 1: custom
 
-    private let presets: [(label: String, calories: Int, hint: String)] = [
-        ("Pérdida de grasa", 1900, "−500 kcal"),
-        ("Mantenimiento",    2400, "0 kcal"),
-        ("Volumen ligero",   2650, "+250 kcal"),
-        ("Ganancia muscular",2900, "+500 kcal")
-    ]
+    /// The profile drives the TDEE that preset cards are computed against.
+    @State private var profile: UserProfile = MockData.profile
+    @State private var goal: NutritionGoal = MockData.goal
+    @State private var selectedPreset: GoalPreset?
+    @State private var mode: Int = 0   // 0: presets, 1: custom
+    @State private var isSaving = false
+    @State private var savedConfirmation = false
+
+    /// TDEE for the loaded profile — preset cards apply their delta on top.
+    private var tdee: Double {
+        let bmr = TDEECalculator.bmr(
+            weightKg: profile.weightKg, heightCm: profile.heightCm,
+            age: profile.age, sex: profile.sex
+        )
+        return TDEECalculator.tdee(bmr: bmr, activity: profile.activity)
+    }
+
+    /// Slice 5.4: advisories from the shared GoalsViewModel.
+    private var warnings: Set<GoalWarning> {
+        GoalsViewModel.warnings(for: goal, sex: profile.sex, weightKg: profile.weightKg)
+    }
 
     var body: some View {
         ZStack {
@@ -195,23 +246,25 @@ struct GoalsView: View {
             ScrollView {
                 VStack(spacing: 14) {
                     Picker("", selection: $mode) {
-                        Text("Preestablecidos").tag(0)
-                        Text("Personalizar").tag(1)
+                        Text("goals.mode.presets").tag(0)
+                        Text("goals.mode.custom").tag(1)
                     }
                     .pickerStyle(.segmented)
 
                     if mode == 0 {
-                        ForEach(0..<presets.count, id: \.self) { i in
-                            presetCard(label: presets[i].label,
-                                       calories: presets[i].calories,
-                                       hint: presets[i].hint,
-                                       isSelected: goal.dailyCalories == presets[i].calories)
-                                .onTapGesture {
-                                    goal.dailyCalories = presets[i].calories
-                                }
+                        ForEach(GoalPreset.allCases, id: \.self) { preset in
+                            presetCard(preset)
+                                .onTapGesture { select(preset) }
                         }
                     } else {
                         customCard
+                    }
+
+                    saveButton
+                    if savedConfirmation {
+                        Text("goals.saved")
+                            .font(theme.font.caption)
+                            .foregroundStyle(theme.positive)
                     }
                     Spacer(minLength: 60)
                 }
@@ -221,14 +274,27 @@ struct GoalsView: View {
         }
         .navigationTitle("Mis metas")
         .navigationBarTitleDisplayMode(.inline)
-        .task { goal = (try? await services.profile.goal()) ?? MockData.goal }
+        .task {
+            profile = (try? await services.profile.profile()) ?? MockData.profile
+            goal = (try? await services.profile.goal()) ?? MockData.goal
+        }
     }
 
-    private func presetCard(label: String, calories: Int, hint: String, isSelected: Bool) -> some View {
-        HStack {
+    private func select(_ preset: GoalPreset) {
+        selectedPreset = preset
+        savedConfirmation = false
+        // Reflect the preset in the live goal so the user sees its macros.
+        goal = GoalsViewModel.presetGoal(for: preset, tdee: tdee, weightKg: profile.weightKg)
+    }
+
+    private func presetCard(_ preset: GoalPreset) -> some View {
+        let computed = GoalsViewModel.presetGoal(for: preset, tdee: tdee, weightKg: profile.weightKg)
+        let isSelected = selectedPreset == preset
+        return HStack {
             VStack(alignment: .leading, spacing: 4) {
-                Text(label).font(theme.font.titleCompact).foregroundStyle(theme.textPrimary)
-                Text("\(calories) kcal · \(hint)")
+                Text(String(localized: preset.labelKey))
+                    .font(theme.font.titleCompact).foregroundStyle(theme.textPrimary)
+                Text("\(computed.dailyCalories) kcal · \(String(localized: preset.hintKey))")
                     .font(theme.font.caption)
                     .foregroundStyle(theme.textSecondary)
             }
@@ -249,24 +315,64 @@ struct GoalsView: View {
 
     private var customCard: some View {
         VStack(spacing: 12) {
-            customRow("Calorías", value: $goal.dailyCalories, suffix: "kcal", step: 50, range: 1200...4500)
-            customRow("Proteína", value: $goal.proteinG, suffix: "g", step: 5, range: 60...300)
-            customRow("Carbos",   value: $goal.carbsG,   suffix: "g", step: 5, range: 50...500)
-            customRow("Grasa",    value: $goal.fatG,     suffix: "g", step: 5, range: 30...200)
-            if Double(goal.dailyCalories) < 1200 {
-                Text("Meta menor a 1200 kcal — consulta a un profesional")
+            customRow("goals.row.calories", value: $goal.dailyCalories, suffix: "kcal", step: 50, range: 1200...4500)
+            customRow("goals.row.protein", value: $goal.proteinG, suffix: "g", step: 5, range: 60...300)
+            customRow("goals.row.carbs",   value: $goal.carbsG,   suffix: "g", step: 5, range: 50...500)
+            customRow("goals.row.fat",     value: $goal.fatG,     suffix: "g", step: 5, range: 30...200)
+            if warnings.contains(.lowCalories) {
+                Text("goals.warning.lowCalories")
+                    .font(theme.font.caption)
+                    .foregroundStyle(theme.negative)
+            }
+            if warnings.contains(.lowProtein) {
+                Text("goals.warning.lowProtein")
                     .font(theme.font.caption)
                     .foregroundStyle(theme.negative)
             }
         }
         .padding(16)
         .themedCard()
+        .onChange(of: goal) { savedConfirmation = false }
     }
 
-    private func customRow(_ label: String, value: Binding<Int>, suffix: String, step: Int, range: ClosedRange<Int>) -> some View {
+    private var saveButton: some View {
+        Button {
+            Task { await save() }
+        } label: {
+            HStack {
+                if isSaving { ProgressView().tint(.white) }
+                Text("goals.save").font(theme.font.bodyMedium)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+            .background(theme.accent, in: RoundedRectangle(cornerRadius: theme.radii.card, style: .continuous))
+            .foregroundStyle(.white)
+        }
+        .disabled(isSaving)
+    }
+
+    @MainActor
+    private func save() async {
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            // Preset mode with a selection → persist the preset (server
+            // recomputes). Otherwise persist the custom macro override.
+            if mode == 0, let preset = selectedPreset {
+                try await services.profile.updatePreset(preset)
+            } else {
+                try await services.profile.updateGoal(goal)
+            }
+            savedConfirmation = true
+        } catch {
+            savedConfirmation = false
+        }
+    }
+
+    private func customRow(_ labelKey: LocalizedStringKey, value: Binding<Int>, suffix: String, step: Int, range: ClosedRange<Int>) -> some View {
         Stepper(value: value, in: range, step: step) {
             HStack {
-                Text(label).foregroundStyle(theme.textSecondary)
+                Text(labelKey).foregroundStyle(theme.textSecondary)
                 Spacer()
                 Text("\(value.wrappedValue) \(suffix)")
                     .foregroundStyle(theme.textPrimary)
