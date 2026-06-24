@@ -225,6 +225,7 @@ struct GoalsView: View {
     @State private var mode: Int = 0   // 0: presets, 1: custom
     @State private var isSaving = false
     @State private var savedConfirmation = false
+    @State private var saveError = false
 
     /// TDEE for the loaded profile — preset cards apply their delta on top.
     private var tdee: Double {
@@ -265,6 +266,10 @@ struct GoalsView: View {
                         Text("goals.saved")
                             .font(theme.font.caption)
                             .foregroundStyle(theme.positive)
+                    } else if saveError {
+                        Text("goals.error.generic")
+                            .font(theme.font.caption)
+                            .foregroundStyle(theme.negative)
                     }
                     Spacer(minLength: 60)
                 }
@@ -337,7 +342,7 @@ struct GoalsView: View {
         }
         .padding(16)
         .themedCard()
-        .onChange(of: goal) { savedConfirmation = false }
+        .onChange(of: goal) { savedConfirmation = false; saveError = false }
     }
 
     private var saveButton: some View {
@@ -360,6 +365,8 @@ struct GoalsView: View {
     private func save() async {
         isSaving = true
         defer { isSaving = false }
+        savedConfirmation = false
+        saveError = false
         do {
             // Preset mode with a selection → persist the preset (server
             // recomputes). Otherwise persist the custom macro override.
@@ -370,7 +377,10 @@ struct GoalsView: View {
             }
             savedConfirmation = true
         } catch {
-            savedConfirmation = false
+            // Surface the failure instead of silently swallowing it — a
+            // dropped save otherwise looks identical to a no-op (mirrors
+            // ProfileView.save()).
+            saveError = true
         }
     }
 

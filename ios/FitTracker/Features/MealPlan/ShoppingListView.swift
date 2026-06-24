@@ -134,7 +134,7 @@ struct ShoppingListView: View {
             Button {
                 Task { await toggle(item) }
             } label: {
-                Label(item.checked ? "mealplan.empty" : "shopping.title",
+                Label(item.checked ? "shopping.uncheck" : "shopping.check",
                       systemImage: item.checked ? "arrow.uturn.left" : "checkmark")
             }
             .tint(item.checked ? theme.textTertiary : theme.positive)

@@ -448,6 +448,24 @@
         }
       }
     },
+    "goals.error.generic": {
+      "comment": "Generic goal save failure.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save. Try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar. Inténtalo de nuevo."
+          }
+        }
+      }
+    },
     "goals.mode.custom": {
       "comment": "Segment: customize macros manually.",
       "extractionState": "manual",
@@ -2875,6 +2893,24 @@
         }
       }
     },
+    "shopping.check": {
+      "comment": "Swipe action label to mark a shopping-list item as bought.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Marcar"
+          }
+        }
+      }
+    },
     "shopping.clearChecked": {
       "extractionState": "manual",
       "localizations": {
@@ -2922,6 +2958,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "%lld de %lld pendientes"
+          }
+        }
+      }
+    },
+    "shopping.uncheck": {
+      "comment": "Swipe action label to unmark a checked shopping-list item.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uncheck"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desmarcar"
           }
         }
       }
