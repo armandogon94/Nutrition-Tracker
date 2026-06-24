@@ -167,6 +167,85 @@ final class MockWorkoutService: WorkoutServiceProtocol, @unchecked Sendable {
     func personalRecords() async throws -> [PersonalRecord] { MockData.personalRecords }
 }
 
+// MARK: - History + Analytics (Slice 8)
+
+/// Aggregates `MockData.recentSessions` in-memory so the History screen and
+/// SwiftUI previews render real-looking charts without a SwiftData store.
+/// Uses the same 1RM/week math as the production `HistoryService`.
+final class MockHistoryService: HistoryServiceProtocol, @unchecked Sendable {
+    private var sessions: [WorkoutSession] { MockData.recentSessions }
+
+    func sessions(in interval: DateInterval) async throws -> [WorkoutSession] {
+        sessions.filter { interval.contains($0.startedAt) }
+            .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    func volumeByWeek(weeks: Int) async throws -> [WeeklyVolumePoint] {
+        let count = max(weeks, 1)
+        let thisWeek = HistoryService.weekStart(for: Date())
+        var buckets: [Date: (Double, Int)] = [:]
+        var order: [Date] = []
+        for offset in stride(from: count - 1, through: 0, by: -1) {
+            guard let ws = HistoryService.calendar.date(byAdding: .weekOfYear,
+                                                        value: -offset, to: thisWeek) else { continue }
+            buckets[ws] = (0, 0); order.append(ws)
+        }
+        for session in sessions {
+            let ws = HistoryService.weekStart(for: session.startedAt)
+            guard buckets[ws] != nil else { continue }
+            for set in session.sets {
+                buckets[ws]?.0 += set.weightKg * Double(set.reps)
+                buckets[ws]?.1 += 1
+            }
+        }
+        return order.map { WeeklyVolumePoint(weekStart: $0, totalVolume: buckets[$0]?.0 ?? 0,
+                                             totalSets: buckets[$0]?.1 ?? 0) }
+    }
+
+    func volumeByMuscle(weeks: Int) async throws -> [MuscleVolumePoint] {
+        // Map mock exercise ids → muscle via the seeded exercise catalog.
+        var muscleByExercise: [UUID: MuscleGroup] = [:]
+        for ex in MockData.exercises { muscleByExercise[ex.id] = ex.primaryMuscle }
+        var totals: [MuscleGroup: (Double, Int)] = [:]
+        for session in sessions {
+            for set in session.sets {
+                let m = muscleByExercise[set.exerciseId] ?? .core
+                var e = totals[m] ?? (0, 0)
+                e.0 += set.weightKg * Double(set.reps); e.1 += 1
+                totals[m] = e
+            }
+        }
+        return totals.map { MuscleVolumePoint(muscle: $0.key, totalVolume: $0.value.0,
+                                              totalSets: $0.value.1) }
+            .sorted { $0.totalVolume > $1.totalVolume }
+    }
+
+    func prs() async throws -> [ExercisePR] {
+        MockData.personalRecords.map {
+            ExercisePR(exerciseId: $0.exerciseId, exerciseName: $0.exerciseName,
+                       weightKg: $0.weightKg, reps: $0.reps,
+                       estimated1RM: HistoryService.estimate1RM(weightKg: $0.weightKg, reps: $0.reps),
+                       achievedAt: $0.achievedAt)
+        }
+        .sorted { $0.estimated1RM > $1.estimated1RM }
+    }
+
+    func exerciseProgression(exerciseId: UUID) async throws -> [ProgressionPoint] {
+        sessions.compactMap { session -> ProgressionPoint? in
+            let relevant = session.sets.filter { $0.exerciseId == exerciseId && $0.weightKg > 0 }
+            guard let best = relevant.max(by: {
+                HistoryService.estimate1RM(weightKg: $0.weightKg, reps: $0.reps)
+                    < HistoryService.estimate1RM(weightKg: $1.weightKg, reps: $1.reps)
+            }) else { return nil }
+            return ProgressionPoint(
+                date: session.startedAt,
+                estimated1RM: HistoryService.estimate1RM(weightKg: best.weightKg, reps: best.reps),
+                topWeightKg: best.weightKg, reps: best.reps)
+        }
+        .sorted { $0.date < $1.date }
+    }
+}
+
 // MARK: - Service container (DI)
 
 @Observable
@@ -192,6 +271,10 @@ final class MockServiceContainer {
     let programs = MockProgramsService()
     let exercises = MockExercisesService()
     let workouts = MockWorkoutService()
+    /// History/analytics aggregation. Protocol-typed so production can inject
+    /// the SwiftData-backed `HistoryService` (Slice 8) while previews +
+    /// tap-through keep the in-memory mock.
+    let history: any HistoryServiceProtocol = MockHistoryService()
 
     init(auth: (any AuthServiceProtocol)? = nil,
          nutrition: (any NutritionServiceProtocol)? = nil,
