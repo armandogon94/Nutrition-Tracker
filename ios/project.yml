@@ -31,6 +31,11 @@ targets:
       - path: FitTracker
     resources:
       - path: FitTracker/Resources
+    dependencies:
+      # Slice 7: embed the Live Activity widget extension so the rest-timer
+      # appears on the Lock Screen + Dynamic Island.
+      - target: FitTrackerRestTimer
+        embed: true
     entitlements:
       path: FitTracker/FitTracker.entitlements
       properties:
@@ -65,6 +70,9 @@ targets:
         NSHealthShareUsageDescription: "FitTracker reads bodyweight and active energy burned to calibrate your nutrition and workout tracking."
         NSHealthUpdateUsageDescription: "FitTracker writes dietary intake and completed workouts so they appear in the Health app."
         NSUserNotificationsUsageDescription: "FitTracker sends rest timer alerts and daily reminders."
+        # Slice 7: enables the rest-timer Live Activity on the Lock Screen +
+        # Dynamic Island. Just an Info.plist flag — no special entitlement.
+        NSSupportsLiveActivities: true
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: "AccentColor"
 
   FitTrackerTests:
@@ -79,3 +87,33 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.armandointeligencia.FitTrackerTests
         GENERATE_INFOPLIST_FILE: "YES"
+
+  # Slice 7.5: Live Activity widget extension (rest timer on Lock Screen +
+  # Dynamic Island). Shares only RestTimerAttributes.swift with the app and
+  # is otherwise self-contained (plain SwiftUI, no app-target dependency).
+  FitTrackerRestTimer:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: FitTrackerRestTimer
+      # Shared attribute type — compiled into both the app and this
+      # extension so ActivityKit can match the activity by structure. No
+      # explicit group: it keeps its natural group to avoid a file being
+      # listed under two groups (a malformed-project warning).
+      - path: FitTracker/Core/LiveActivity/RestTimerAttributes.swift
+    info:
+      path: FitTrackerRestTimer/Info.plist
+      properties:
+        CFBundleDisplayName: "FitTracker Rest Timer"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.armandointeligencia.FitTracker.RestTimer
+        PRODUCT_NAME: "FitTrackerRestTimer"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_EMIT_LOC_STRINGS: "YES"
+        TARGETED_DEVICE_FAMILY: "1"
+        SKIP_INSTALL: "YES"

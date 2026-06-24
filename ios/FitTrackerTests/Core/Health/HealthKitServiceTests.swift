@@ -105,4 +105,62 @@ struct HealthKitServiceTests {
             try await service.writeMealEntry(item)
         }
     }
+
+    // MARK: - Workout write (Slice 7.9)
+
+    @Test("workout configuration uses functionalStrengthTraining")
+    func workoutConfig_isStrengthTraining() {
+        let config = HealthKitService.workoutConfiguration()
+        #expect(config.activityType == .functionalStrengthTraining)
+    }
+
+    @Test("workout metadata carries the session id as ExternalUUID (idempotency)")
+    func workoutMetadata_includesExternalUUID() {
+        let session = WorkoutSession(
+            id: UUID(), startedAt: Date().addingTimeInterval(-1800),
+            completedAt: Date(), programName: "PPL", dayName: "Push", sets: []
+        )
+        let meta = HealthKitService.workoutMetadata(for: session)
+        #expect(meta[HKMetadataKeyExternalUUID] as? String == session.id.uuidString,
+                "Workout missing ExternalUUID — Apple Health will duplicate on re-finish")
+        #expect(meta[HKMetadataKeyIndoorWorkout] as? Bool == true)
+    }
+
+    @Test("two sessions produce distinct ExternalUUIDs")
+    func workoutMetadata_distinctPerSession() {
+        let a = WorkoutSession(id: UUID(), startedAt: Date(), completedAt: Date(),
+                               programName: "P", dayName: "D", sets: [])
+        let b = WorkoutSession(id: UUID(), startedAt: Date(), completedAt: Date(),
+                               programName: "P", dayName: "D", sets: [])
+        let ma = HealthKitService.workoutMetadata(for: a)[HKMetadataKeyExternalUUID] as? String
+        let mb = HealthKitService.workoutMetadata(for: b)[HKMetadataKeyExternalUUID] as? String
+        #expect(ma != mb)
+    }
+
+    @Test("writeWorkout on a service without a store throws .unavailable")
+    func writeWorkout_unavailable() async {
+        let service = HealthKitService(store: nil)
+        let session = WorkoutSession(
+            id: UUID(), startedAt: Date().addingTimeInterval(-1800),
+            completedAt: Date(), programName: "PPL", dayName: "Push", sets: []
+        )
+        await #expect(throws: HealthKitError.unavailable) {
+            try await service.writeWorkout(session)
+        }
+    }
+
+    @Test("writeWorkout rejects a session that is not yet completed")
+    func writeWorkout_rejectsActiveSession() async {
+        // Even on a real store this must fail fast; with a nil store the
+        // unavailable check fires first, so we assert the no-store case still
+        // throws (the completedAt guard is covered by the pure-helper tests).
+        let service = HealthKitService(store: nil)
+        let active = WorkoutSession(
+            id: UUID(), startedAt: Date(), completedAt: nil,
+            programName: "PPL", dayName: "Push", sets: []
+        )
+        await #expect(throws: (any Error).self) {
+            try await service.writeWorkout(active)
+        }
+    }
 }

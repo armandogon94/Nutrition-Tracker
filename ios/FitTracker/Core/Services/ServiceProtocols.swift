@@ -116,3 +116,53 @@ protocol WorkoutServiceProtocol: AnyObject, Sendable {
     func completedSessions(in: DateInterval) async throws -> [WorkoutSession]
     func personalRecords() async throws -> [PersonalRecord]
 }
+
+/// Outcome of logging a single set. Returns the freshly inserted
+/// `WorkoutSet` (so the UI can append it immediately) plus an optional
+/// `PersonalRecord` that is non-nil exactly when this set set a new PR for
+/// its exercise — the view uses it to drive the celebration overlay.
+struct LogSetOutcome: Sendable, Equatable {
+    let set: WorkoutSet
+    /// Non-nil iff this set beat the prior estimated-1RM for the exercise.
+    let newPR: PersonalRecord?
+    var isPR: Bool { newPR != nil }
+}
+
+/// Slice 7: extends `WorkoutServiceProtocol` with the active-workout
+/// mutations. Kept as a separate protocol — mirroring
+/// `MealLoggingServiceProtocol` — so the Slice 0.5 read-only mock surface
+/// stays minimal and previews can inject a lightweight read-only stub.
+///
+/// All three mutators are `@MainActor` because each one touches a SwiftData
+/// `ModelContext`; the backend round-trip is launched from inside the
+/// actor and awaited only so we can flip `pendingSync`.
+@MainActor
+protocol WorkoutLoggingServiceProtocol: WorkoutServiceProtocol {
+    /// Creates a session locally (pendingSync=true) and on the backend.
+    /// Returns the local `WorkoutSession` immediately so the logger UI can
+    /// navigate without waiting on the network. A backend failure leaves
+    /// the row pending for later sync rather than blocking the workout.
+    func startSession(programName: String,
+                      dayName: String,
+                      programId: UUID?,
+                      programDayId: UUID?,
+                      userId: UUID) async throws -> WorkoutSession
+
+    /// Logs one set against an active session. Writes the set to SwiftData
+    /// first (so a mid-workout crash never loses input), detects a PR by
+    /// comparing estimated-1RM against the local `PersonalRecord` for the
+    /// exercise (mirroring `backend/app/services/workout_service.py`),
+    /// updates/creates that PR locally, then fires the backend POST.
+    func logSet(sessionId: UUID,
+                exerciseId: UUID,
+                exerciseName: String,
+                setNumber: Int,
+                weightKg: Double,
+                reps: Int,
+                userId: UUID) async throws -> LogSetOutcome
+
+    /// Marks a session complete: stamps `completedAt`, persists locally,
+    /// and PATCHes the backend. Returns the completed `WorkoutSession`
+    /// (with duration derived) for the summary screen + HealthKit write.
+    func completeSession(sessionId: UUID) async throws -> WorkoutSession
+}

@@ -247,3 +247,89 @@ final class HealthKitService {
         return samples
     }
 }
+
+// MARK: - Workout write (Slice 7.9)
+//
+// PHI compliance + idempotency mirror the dietary path:
+//   - Authorization for the workout type is requested at point-of-use (when
+//     the user finishes their first workout), with the minimum scope.
+//   - Every workout carries HKMetadataKeyExternalUUID = session.id, so
+//     re-finishing the same session never creates a duplicate entry.
+//   - A denied/unavailable store surfaces a typed error; SessionView never
+//     blocks ending a workout on a HealthKit failure.
+//
+// API (source-driven-development): uses `HKWorkoutBuilder` (the modern
+// path; the old `HKWorkout` initializers are deprecated on iOS 17+):
+//   configure -> beginCollection -> endCollection -> finishWorkout.
+//
+// Testing: `HKWorkoutBuilder` can't be driven headlessly, so the pure
+// pieces — the configuration's activity type and the idempotency metadata —
+// are extracted into `workoutConfiguration()` + `workoutMetadata(for:)` and
+// asserted in HealthKitServiceTests. The thin builder glue is verified on a
+// real device per the manual QA checklist.
+
+extension HealthKitService {
+
+    /// The workout share type (separate from the dietary quantity types).
+    static var workoutShareTypes: Set<HKSampleType> { [HKObjectType.workoutType()] }
+
+    /// Request authorization to write workouts. Idempotent at the system
+    /// level. Sets `isAuthorized` so subsequent dietary/workout writes skip
+    /// the re-prompt.
+    func requestWorkoutAuthorizationIfNeeded() async throws {
+        guard let store else { throw HealthKitError.unavailable }
+        do {
+            try await store.requestAuthorization(toShare: Self.workoutShareTypes, read: [])
+            isAuthorized = true
+        } catch {
+            throw HealthKitError.unauthorized
+        }
+    }
+
+    /// Write a completed `WorkoutSession` to Apple Health as a
+    /// functional-strength-training workout. Idempotent via the session id.
+    /// A still-active session (no `completedAt`) is rejected.
+    func writeWorkout(_ session: WorkoutSession) async throws {
+        guard let store else { throw HealthKitError.unavailable }
+        guard let end = session.completedAt else {
+            throw HealthKitError.writeFailed("session has no completedAt")
+        }
+
+        try await requestWorkoutAuthorizationIfNeeded()
+
+        let configuration = Self.workoutConfiguration()
+        let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration, device: .local())
+
+        do {
+            try await builder.beginCollection(at: session.startedAt)
+            // We don't have per-second energy samples for a strength session;
+            // the duration (start..end) is the meaningful signal. Attach the
+            // idempotency + provenance metadata.
+            try await builder.addMetadata(Self.workoutMetadata(for: session))
+            try await builder.endCollection(at: end)
+            _ = try await builder.finishWorkout()
+        } catch {
+            throw HealthKitError.writeFailed(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Pure helpers (testable)
+
+    /// The configuration for a strength-training session.
+    static func workoutConfiguration() -> HKWorkoutConfiguration {
+        let config = HKWorkoutConfiguration()
+        config.activityType = .functionalStrengthTraining
+        return config
+    }
+
+    /// Metadata attached to the workout. The ExternalUUID makes the write
+    /// idempotent (HealthKit dedupes on it); the indoor flag marks a gym
+    /// session.
+    static func workoutMetadata(for session: WorkoutSession) -> [String: Any] {
+        [
+            HKMetadataKeyExternalUUID: session.id.uuidString,
+            HKMetadataKeyIndoorWorkout: true,
+            HKMetadataKeyWorkoutBrandName: "FitTracker"
+        ]
+    }
+}
