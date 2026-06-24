@@ -188,3 +188,189 @@ enum MealMapper {
         return entity
     }
 }
+
+// MARK: - Shopping category (Slice 4)
+
+extension ShoppingCategory {
+    /// Map a backend category string onto the iOS enum. The backend stores
+    /// localized Spanish section names (see services/shopping_list.py:
+    /// CATEGORY_MAP + _categorize_product). We fold both the Spanish
+    /// section labels and the raw English category keys onto our enum, so
+    /// the mapping is robust whether the backend sends "Lácteos y Huevos"
+    /// or a future "dairy". Unknown values fall back to `.other`.
+    init(fromBackend raw: String?) {
+        guard let raw, !raw.isEmpty else { self = .other; return }
+        let v = raw.lowercased()
+        switch v {
+        // Spanish section labels emitted by shopping_list.py
+        case "frutas y verduras":      self = .produce
+        case "carnes y aves",
+             "pescados y mariscos":    self = .proteins
+        case "lácteos y huevos",
+             "lacteos y huevos":       self = .dairy
+        case "panadería", "panaderia",
+             "granos y cereales":      self = .grains
+        case "bebidas":                self = .beverages
+        case "congelados":             self = .frozen
+        case "enlatados y conservas",
+             "condimentos y especias",
+             "aceites y vinagres",
+             "botanas y snacks":       self = .pantry
+        default:
+            // Tolerate raw English keys too (forward-compat).
+            switch v {
+            case "produce":                       self = .produce
+            case "dairy":                         self = .dairy
+            case "proteins", "meat", "seafood":   self = .proteins
+            case "grains", "bakery":              self = .grains
+            case "beverages":                     self = .beverages
+            case "frozen":                        self = .frozen
+            case "pantry", "canned",
+                 "condiments", "oils", "snacks":  self = .pantry
+            default:                              self = .other
+            }
+        }
+    }
+}
+
+// MARK: - ShoppingItem (Slice 4)
+
+extension ShoppingItem {
+    init(from dto: ShoppingListItemDTO) {
+        self.init(
+            id: parseUUID(dto.id),
+            name: dto.ingredient_name,
+            quantity: Self.formatQuantity(dto.quantity, unit: dto.unit),
+            category: ShoppingCategory(fromBackend: dto.category),
+            checked: dto.is_checked
+        )
+    }
+
+    init(from entity: ShoppingListItemEntity) {
+        self.init(
+            id: entity.id,
+            name: entity.name,
+            quantity: entity.quantity,
+            category: ShoppingCategory(rawValue: entity.category) ?? .other,
+            checked: entity.checked
+        )
+    }
+
+    /// Render a numeric quantity + unit into a compact display string:
+    /// "500 g", "1.5 kg", "2 pzas". Drops a trailing ".0" so integral
+    /// amounts read cleanly.
+    static func formatQuantity(_ quantity: Double, unit: String?) -> String {
+        let qStr: String
+        if quantity == quantity.rounded() {
+            qStr = String(Int(quantity))
+        } else {
+            qStr = String(format: "%.1f", quantity)
+        }
+        if let unit, !unit.isEmpty {
+            return "\(qStr) \(unit)"
+        }
+        return qStr
+    }
+}
+
+enum ShoppingListItemMapper {
+    static func makeEntity(from dto: ShoppingListItemDTO) -> ShoppingListItemEntity {
+        ShoppingListItemEntity(
+            id: parseUUID(dto.id),
+            name: dto.ingredient_name,
+            quantity: ShoppingItem.formatQuantity(dto.quantity, unit: dto.unit),
+            category: ShoppingCategory(fromBackend: dto.category).rawValue,
+            checked: dto.is_checked,
+            pendingSync: false
+        )
+    }
+}
+
+// MARK: - MealPlanItem (Slice 4)
+
+extension MealPlanItem {
+    init(from dto: MealPlanItemDTO) {
+        self.init(
+            id: parseUUID(dto.id),
+            dayIndex: dto.day_of_week,
+            mealType: MealType(rawValue: dto.meal_type) ?? .snack,
+            productName: dto.product.name,
+            servings: dto.quantity_servings
+        )
+    }
+
+    init(from entity: MealPlanItemEntity) {
+        self.init(
+            id: entity.id,
+            dayIndex: entity.dayIndex,
+            mealType: MealType(rawValue: entity.mealType) ?? .snack,
+            productName: entity.productName,
+            servings: entity.servings
+        )
+    }
+}
+
+enum MealPlanItemMapper {
+    static func makeEntity(from item: MealPlanItem,
+                           pendingSync: Bool = false) -> MealPlanItemEntity {
+        MealPlanItemEntity(
+            id: item.id,
+            dayIndex: item.dayIndex,
+            mealType: item.mealType.rawValue,
+            productName: item.productName,
+            servings: item.servings,
+            pendingSync: pendingSync
+        )
+    }
+
+    static func makeEntity(from dto: MealPlanItemDTO,
+                           pendingSync: Bool = false) -> MealPlanItemEntity {
+        MealPlanItemEntity(
+            id: parseUUID(dto.id),
+            dayIndex: dto.day_of_week,
+            mealType: dto.meal_type,
+            productName: dto.product.name,
+            servings: dto.quantity_servings,
+            pendingSync: pendingSync
+        )
+    }
+}
+
+// MARK: - MealPlan (Slice 4)
+
+extension MealPlan {
+    init(from dto: MealPlanDTO) {
+        self.init(
+            id: parseUUID(dto.id),
+            weekStartDate: dto.week_start_date,
+            items: dto.items.map(MealPlanItem.init(from:))
+        )
+    }
+
+    init(from entity: MealPlanEntity) {
+        self.init(
+            id: entity.id,
+            weekStartDate: entity.weekStartDate,
+            items: entity.items
+                .sorted { ($0.dayIndex, $0.mealType) < ($1.dayIndex, $1.mealType) }
+                .map(MealPlanItem.init(from:))
+        )
+    }
+}
+
+enum MealPlanMapper {
+    static func makeEntity(from dto: MealPlanDTO,
+                           userId: UUID,
+                           pendingSync: Bool = false,
+                           lastSyncedAt: Date? = .now) -> MealPlanEntity {
+        let entity = MealPlanEntity(
+            id: parseUUID(dto.id),
+            userId: userId,
+            weekStartDate: dto.week_start_date,
+            pendingSync: pendingSync,
+            lastSyncedAt: lastSyncedAt
+        )
+        entity.items = dto.items.map { MealPlanItemMapper.makeEntity(from: $0, pendingSync: pendingSync) }
+        return entity
+    }
+}

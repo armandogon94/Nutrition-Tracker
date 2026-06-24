@@ -322,3 +322,72 @@ final class MockServiceContainer {
         return MockServiceContainer(auth: auth, nutrition: nutrition, profile: profile)
     }
 }
+
+// MARK: - Meal plan (full planning surface — Slice 4)
+
+/// In-memory mock for the extended `MealPlanningServiceProtocol`. Backs
+/// previews and tests that exercise the planner/shopping flows without a
+/// SwiftData context or network. Mutations are kept in plain arrays so the
+/// weekly grid and shopping list reflect changes within the session.
+@Observable
+@MainActor
+final class MockMealPlanningService: MealPlanningServiceProtocol {
+    private var _plan: MealPlan? = MockData.mealPlan
+    private var _shopping: [ShoppingItem] = MockData.shoppingList
+    private let _listId = UUID()
+
+    func currentPlan() async throws -> MealPlan? { _plan }
+
+    func shoppingList() async throws -> [ShoppingItem] { _shopping }
+
+    func toggleChecked(_ itemId: UUID) async throws {
+        guard let i = _shopping.firstIndex(where: { $0.id == itemId }) else { return }
+        _shopping[i].checked.toggle()
+    }
+
+    func createPlan(weekStartDate: Date, userId: UUID, name: String) async throws -> MealPlan {
+        let plan = MealPlan(id: UUID(), weekStartDate: weekStartDate, items: [])
+        _plan = plan
+        return plan
+    }
+
+    func addItem(toPlan planId: UUID, dayIndex: Int, mealType: MealType,
+                 product: Product, servings: Double) async throws -> MealPlanItem {
+        let item = MealPlanItem(id: UUID(), dayIndex: dayIndex, mealType: mealType,
+                                productName: product.name, servings: servings)
+        if let plan = _plan {
+            _plan = MealPlan(id: plan.id, weekStartDate: plan.weekStartDate,
+                             items: plan.items + [item])
+        }
+        return item
+    }
+
+    func moveItem(_ itemId: UUID, toDay dayIndex: Int,
+                  mealType: MealType, inPlan planId: UUID) async throws {
+        guard let plan = _plan else { return }
+        let items = plan.items.map { item -> MealPlanItem in
+            guard item.id == itemId else { return item }
+            return MealPlanItem(id: item.id, dayIndex: dayIndex, mealType: mealType,
+                                productName: item.productName, servings: item.servings)
+        }
+        _plan = MealPlan(id: plan.id, weekStartDate: plan.weekStartDate, items: items)
+    }
+
+    func removeItem(_ itemId: UUID, fromPlan planId: UUID) async throws {
+        guard let plan = _plan else { return }
+        _plan = MealPlan(id: plan.id, weekStartDate: plan.weekStartDate,
+                         items: plan.items.filter { $0.id != itemId })
+    }
+
+    func generateShoppingList(forPlan planId: UUID, userId: UUID) async throws -> [ShoppingItem] {
+        _shopping = MockData.shoppingList
+        return _shopping
+    }
+
+    func setChecked(_ itemId: UUID, checked: Bool, listId: UUID) async throws {
+        guard let i = _shopping.firstIndex(where: { $0.id == itemId }) else { return }
+        _shopping[i].checked = checked
+    }
+
+    func currentShoppingListId() async throws -> UUID? { _listId }
+}
