@@ -78,12 +78,29 @@ struct ProgressionPoint: Identifiable, Hashable, Sendable {
 final class HistoryService: HistoryServiceProtocol, @unchecked Sendable {
 
     private let container: ModelContainer
-    private let userId: UUID
+    /// Resolves the current user's id at query time. A closure (rather than a
+    /// captured value) so `production()` can build the service at launch —
+    /// before login — and have every query scope to whoever is authenticated
+    /// when it actually runs. Mirrors `NutritionService(userId:)`. Returns
+    /// nil when no user is signed in, in which case queries yield empty.
+    ///
+    /// Not `@Sendable`: it's only ever invoked from this service's `@MainActor`
+    /// methods (so it reads `AuthService.currentUser` on the main actor), and
+    /// the class opts out of Sendable checking via `@unchecked`. This matches
+    /// `NutritionService(userId:)`, whose closure is likewise non-Sendable.
+    private let userIdProvider: () -> UUID?
+
+    /// Convenience for a fixed user (tests, and any caller that already holds
+    /// the id). Wraps the constant in the resolver.
+    @MainActor
+    convenience init(container: ModelContainer, userId: UUID) {
+        self.init(container: container, userId: { userId })
+    }
 
     @MainActor
-    init(container: ModelContainer, userId: UUID) {
+    init(container: ModelContainer, userId: @escaping () -> UUID?) {
         self.container = container
-        self.userId = userId
+        self.userIdProvider = userId
     }
 
     // MARK: - Sessions in a date range
@@ -172,6 +189,7 @@ final class HistoryService: HistoryServiceProtocol, @unchecked Sendable {
     /// reflects the freshest data (rather than trusting stored PR rows).
     @MainActor
     func prs() async throws -> [ExercisePR] {
+        guard let userId = userIdProvider() else { return [] }
         let ctx = ModelContext(container)
         // All of the user's completed-session sets, with their session date.
         let sessions = try ctx.fetch(FetchDescriptor<WorkoutSessionEntity>(
@@ -210,6 +228,7 @@ final class HistoryService: HistoryServiceProtocol, @unchecked Sendable {
     /// the session/exercise detail.
     @MainActor
     func exerciseProgression(exerciseId: UUID) async throws -> [ProgressionPoint] {
+        guard let userId = userIdProvider() else { return [] }
         let ctx = ModelContext(container)
         let sessions = try ctx.fetch(FetchDescriptor<WorkoutSessionEntity>(
             predicate: Self.completedPredicate(userId: userId)
@@ -280,8 +299,8 @@ final class HistoryService: HistoryServiceProtocol, @unchecked Sendable {
 
     @MainActor
     private func fetchCompletedSessions(in interval: DateInterval) throws -> [WorkoutSessionEntity] {
+        guard let uid = userIdProvider() else { return [] }
         let ctx = ModelContext(container)
-        let uid = userId
         let start = interval.start
         let end = interval.end
         var descriptor = FetchDescriptor<WorkoutSessionEntity>(

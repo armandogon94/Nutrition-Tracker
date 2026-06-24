@@ -274,15 +274,17 @@ final class MockServiceContainer {
     /// History/analytics aggregation. Protocol-typed so production can inject
     /// the SwiftData-backed `HistoryService` (Slice 8) while previews +
     /// tap-through keep the in-memory mock.
-    let history: any HistoryServiceProtocol = MockHistoryService()
+    let history: any HistoryServiceProtocol
 
     init(auth: (any AuthServiceProtocol)? = nil,
          nutrition: (any NutritionServiceProtocol)? = nil,
-         profile: (any ProfileServiceProtocol)? = nil) {
+         profile: (any ProfileServiceProtocol)? = nil,
+         history: (any HistoryServiceProtocol)? = nil) {
         let resolvedAuth = auth ?? MockAuthService()
         self.auth = resolvedAuth
         self.nutrition = nutrition ?? MockNutritionService()
         self.profile = profile ?? MockProfileService()
+        self.history = history ?? MockHistoryService()
 
         #if DEBUG
         // Auto-login when the app is launched with `-uiAutoLogin carlos`.
@@ -319,7 +321,17 @@ final class MockServiceContainer {
             userId: { [weak auth] in auth?.currentUser?.id }
         )
         let profile = ProfileService(api: api)
-        return MockServiceContainer(auth: auth, nutrition: nutrition, profile: profile)
+        // Slice 8 B1 fix: inject the REAL HistoryService so the Progreso tab
+        // aggregates the live SwiftData store instead of MockData. It reads the
+        // authenticated user's id at query time from the SAME auth instance
+        // used for nutrition, so its session/PR queries scope to the right
+        // account once the user logs in.
+        let history = HistoryService(
+            container: PersistenceController.live.container,
+            userId: { [weak auth] in auth?.currentUser?.id }
+        )
+        return MockServiceContainer(auth: auth, nutrition: nutrition,
+                                    profile: profile, history: history)
     }
 }
 
