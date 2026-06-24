@@ -26,7 +26,6 @@ from typing import Any
 import httpx
 import jwt
 from fastapi import HTTPException, status
-from jwt import PyJWKClient
 from jwt.algorithms import RSAAlgorithm
 
 from app.core.config import settings
@@ -82,6 +81,13 @@ async def verify_identity_token(identity_token: str) -> dict:
     Raises ``HTTPException(401)`` for any signature/audience/issuer/expiry
     failure. Callers should treat the returned `sub` claim as the durable
     Apple user identifier.
+
+    The returned dict carries Apple's `email` and `email_verified` claims when
+    present. `email_verified` arrives as the string "true"/"false" (older
+    tokens may use a bool). Callers MUST NOT trust `email` for linking to an
+    existing account unless `email_verified` is truthy — Apple will sign tokens
+    whose email it has not verified, so an unconditional email link is an
+    account-takeover vector. See `sign_in_with_apple`.
     """
     try:
         unverified_header = jwt.get_unverified_header(identity_token)

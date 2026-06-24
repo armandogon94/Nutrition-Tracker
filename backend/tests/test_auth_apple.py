@@ -16,9 +16,9 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from sqlalchemy import select
 
 from app.core.config import settings
+from app.core.security import hash_password
 from app.models.user import User
 from app.services import apple_verifier as apple_mod
-
 
 # ---- Test fixtures: deterministic RSA keypair + JWK installer ------------
 
@@ -84,7 +84,15 @@ def _mint_identity_token(
     iss: str | None = None,
     exp_offset: timedelta = timedelta(minutes=10),
     email: str | None = "apple-user@privaterelay.appleid.com",
+    email_verified: str | bool | None = "true",
 ) -> str:
+    """Mint an Apple identity JWT.
+
+    Apple ships ``email_verified`` as the *string* "true"/"false" alongside the
+    ``email`` claim (and omits both when the user hides their address). We mirror
+    that: ``email_verified`` is only emitted when an ``email`` is present, and
+    defaults to "true" to model Apple's verified primary/relay addresses.
+    """
     payload = {
         "sub": sub,
         "iss": iss if iss is not None else settings.apple_issuer,
@@ -94,6 +102,8 @@ def _mint_identity_token(
     }
     if email is not None:
         payload["email"] = email
+        if email_verified is not None:
+            payload["email_verified"] = email_verified
     return jwt.encode(payload, private_pem, algorithm="RS256", headers={"kid": kid})
 
 
@@ -240,3 +250,150 @@ async def test_apple_wrong_issuer_returns_401(client, apple_keypair):
         },
     )
     assert resp.status_code == 401
+
+
+# ---- Account-linking security (pre-auth takeover guard) ------------------
+#
+# The /apple upsert may attach an Apple identity to a *pre-existing* password
+# account by email. That auto-link is only safe when Apple itself vouches for
+# the address: the email must come from the signed JWT AND carry
+# email_verified == "true". A client-supplied email, or a JWT email Apple flags
+# unverified, must never bind an attacker's Apple `sub` to a victim's row.
+
+
+async def test_apple_links_existing_account_when_jwt_email_verified(
+    client, db_session, apple_keypair
+):
+    """Verified JWT email matching a password account => link onto that row."""
+    pem, kid, _ = apple_keypair
+    victim = User(
+        email="owner@example.com",
+        password_hash=hash_password("owner-password"),
+        display_name="Account Owner",
+    )
+    db_session.add(victim)
+    await db_session.commit()
+    await db_session.refresh(victim)
+    owner_id = str(victim.id)
+
+    token = _mint_identity_token(
+        pem,
+        kid,
+        sub="apple-uid-verified-link",
+        email="owner@example.com",
+        email_verified="true",
+    )
+    resp = await client.post(
+        "/api/v1/auth/apple",
+        json={
+            "identity_token": token,
+            "user_identifier": "apple-uid-verified-link",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    # Same row reused — the Apple identity was linked, not duplicated.
+    assert resp.json()["user"]["id"] == owner_id
+
+    db_session.expire_all()
+    rows = await db_session.execute(
+        select(User).where(User.email == "owner@example.com")
+    )
+    linked = rows.scalar_one()
+    assert str(linked.id) == owner_id
+    assert linked.apple_user_id == "apple-uid-verified-link"
+
+
+async def test_apple_refuses_link_when_jwt_email_unverified(
+    client, db_session, apple_keypair
+):
+    """email_verified == 'false' must NOT link to the victim's account."""
+    pem, kid, _ = apple_keypair
+    victim = User(
+        email="victim-unverified@example.com",
+        password_hash=hash_password("victim-password"),
+        display_name="Victim",
+    )
+    db_session.add(victim)
+    await db_session.commit()
+    await db_session.refresh(victim)
+    victim_id = str(victim.id)
+
+    # Attacker holds a validly-signed token for their OWN sub, but the email
+    # claim points at the victim and Apple marks it unverified.
+    token = _mint_identity_token(
+        pem,
+        kid,
+        sub="attacker-sub-unverified",
+        email="victim-unverified@example.com",
+        email_verified="false",
+    )
+    resp = await client.post(
+        "/api/v1/auth/apple",
+        json={
+            "identity_token": token,
+            "user_identifier": "attacker-sub-unverified",
+        },
+    )
+    # Acceptable outcomes: a 4xx, or a brand-new *distinct* account. Never the
+    # victim's row.
+    assert resp.status_code in (200, 400, 409), resp.text
+    if resp.status_code == 200:
+        assert resp.json()["user"]["id"] != victim_id
+
+    db_session.expire_all()
+    rows = await db_session.execute(
+        select(User).where(User.email == "victim-unverified@example.com")
+    )
+    victim_row = rows.scalar_one()
+    assert str(victim_row.id) == victim_id
+    # The crux: the victim account never received the attacker's Apple id.
+    assert victim_row.apple_user_id is None
+
+    # And the attacker's sub, if it created any row, did not resolve to victim.
+    rows = await db_session.execute(
+        select(User).where(User.apple_user_id == "attacker-sub-unverified")
+    )
+    attacker_row = rows.scalar_one_or_none()
+    if attacker_row is not None:
+        assert str(attacker_row.id) != victim_id
+
+
+async def test_apple_refuses_link_from_client_supplied_email(
+    client, db_session, apple_keypair
+):
+    """No JWT email + attacker-controlled body email must NOT link the victim."""
+    pem, kid, _ = apple_keypair
+    victim = User(
+        email="victim-client@example.com",
+        password_hash=hash_password("victim-password"),
+        display_name="Victim",
+    )
+    db_session.add(victim)
+    await db_session.commit()
+    await db_session.refresh(victim)
+    victim_id = str(victim.id)
+
+    # Signed token for the attacker's sub with NO email claim; the victim's
+    # address is smuggled in only via the request body.
+    token = _mint_identity_token(
+        pem, kid, sub="attacker-sub-client", email=None
+    )
+    resp = await client.post(
+        "/api/v1/auth/apple",
+        json={
+            "identity_token": token,
+            "user_identifier": "attacker-sub-client",
+            "email": "victim-client@example.com",
+        },
+    )
+    assert resp.status_code in (200, 400, 409), resp.text
+    if resp.status_code == 200:
+        assert resp.json()["user"]["id"] != victim_id
+
+    db_session.expire_all()
+    rows = await db_session.execute(
+        select(User).where(User.email == "victim-client@example.com")
+    )
+    victim_row = rows.scalar_one()
+    assert str(victim_row.id) == victim_id
+    assert victim_row.apple_user_id is None

@@ -109,6 +109,45 @@ def _display_name_from(req: AppleSigninRequest, fallback: str) -> str:
     return fallback
 
 
+async def _email_owner(db: AsyncSession, email: str) -> User | None:
+    result = await db.execute(select(User).where(User.email == email))
+    return result.scalar_one_or_none()
+
+
+async def _provision_apple_email(
+    db: AsyncSession,
+    *,
+    verified_email: str | None,
+    client_email: str | None,
+    apple_user_id: str,
+) -> str:
+    """Pick a NON-colliding email for a brand-new Apple account.
+
+    Preference order: verified JWT email -> client-supplied email -> synthesized
+    ``apple_<sub>@fittracker.local``. A candidate that already belongs to another
+    account is skipped: an unverified or client-supplied email must never seed an
+    address that silently attaches this Apple identity to someone else's row. The
+    synthesized address is keyed on the unique Apple ``sub``, so it is the
+    guaranteed-distinct fallback. If even that collides (only possible if someone
+    pre-registered the synthesized address) we refuse rather than hijack a row.
+    """
+    candidates = (
+        verified_email,
+        client_email,
+        _synthesize_apple_email(apple_user_id),
+    )
+    for candidate in candidates:
+        if candidate and await _email_owner(db, candidate) is None:
+            return candidate
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "Unable to provision Apple account; "
+            "sign in with your existing credentials."
+        ),
+    )
+
+
 @router.post("/apple", response_model=TokenResponse)
 @limiter.limit("5/minute")
 async def sign_in_with_apple(
@@ -118,11 +157,19 @@ async def sign_in_with_apple(
 ) -> TokenResponse:
     """Verify an Apple identity token and upsert a user keyed by Apple user id.
 
-    On first sign-in we create a new user — preferring the email Apple put in
-    the JWT (or the request body if Apple omitted it), falling back to a
-    synthesized `apple_<id>@fittracker.local` so the unique-email constraint
-    is always satisfied. Subsequent sign-ins look the user up by
+    The verified `sub` is the canonical key. On first sign-in we create a new
+    user, preferring the email Apple signed into the JWT, then the request body,
+    then a synthesized `apple_<id>@fittracker.local` so the unique-email
+    constraint is always satisfied. Subsequent sign-ins look the user up by
     `apple_user_id` and reuse the row.
+
+    Account-takeover guard (Slice 9.6 security fix): a *pre-existing* account is
+    only ever auto-linked to this Apple identity when the email came from the
+    signed JWT AND Apple flagged it `email_verified == "true"`. An unverified
+    JWT email, or the fully client-controlled `data.email`, can seed a brand-new
+    account's address but must NEVER attach this `sub` to someone else's row —
+    otherwise an attacker could bind their Apple id to a victim's password
+    account and sign in as them thereafter.
     """
     claims = await verify_identity_token(data.identity_token)
 
@@ -137,21 +184,30 @@ async def sign_in_with_apple(
 
     if user is None:
         verified_email = claims.get("email")
-        email = (
-            verified_email
-            or (data.email if data.email else None)
-            or _synthesize_apple_email(apple_user_id)
-        )
+        # Apple ships `email_verified` as the string "true"/"false" (older
+        # tokens may use a bool). Only a JWT-sourced, Apple-verified email may
+        # resolve to a pre-existing account — never `data.email`, never an
+        # unverified address. This single check closes the pre-auth takeover.
+        email_is_apple_verified = claims.get("email_verified") in (True, "true")
 
-        # Email collision guard: if a password user already owns this email,
-        # link the Apple id to that account rather than 409-ing the user out
-        # of their own login.
-        existing = await db.execute(select(User).where(User.email == email))
-        existing_user = existing.scalar_one_or_none()
+        existing_user: User | None = None
+        if verified_email and email_is_apple_verified:
+            existing_user = await _email_owner(db, verified_email)
+
         if existing_user is not None:
+            # Safe link: Apple vouches for this address and signed it into the
+            # JWT, so attaching the Apple id to the matching account is correct.
             existing_user.apple_user_id = apple_user_id
             user = existing_user
         else:
+            # Brand-new account. The chosen email must not collide with any
+            # existing row, so an unverified/client email can't hijack one.
+            email = await _provision_apple_email(
+                db,
+                verified_email=verified_email,
+                client_email=data.email,
+                apple_user_id=apple_user_id,
+            )
             user = User(
                 email=email,
                 password_hash="!apple-no-password",  # never matches verify_password
