@@ -34,3 +34,15 @@ class ProductResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class ProductSearchResponse(BaseModel):
+    """Envelope for free-text product search results.
+
+    A list *wrapper* (not a bare array) so the response can later grow
+    pagination metadata without a breaking change, and so the shape is
+    distinct from the single-object barcode/by-id lookups. Mirrors the iOS
+    `ProductSearchResponse { results: [ProductDTO] }`.
+    """
+
+    results: list[ProductResponse]
