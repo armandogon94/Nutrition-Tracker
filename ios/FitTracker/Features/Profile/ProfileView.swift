@@ -329,6 +329,11 @@ struct GoalsView: View {
                     .font(theme.font.caption)
                     .foregroundStyle(theme.negative)
             }
+            if warnings.contains(.lowCarbs) {
+                Text("goals.warning.lowCarbs")
+                    .font(theme.font.caption)
+                    .foregroundStyle(theme.negative)
+            }
         }
         .padding(16)
         .themedCard()

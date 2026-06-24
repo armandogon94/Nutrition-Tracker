@@ -610,6 +610,24 @@
         }
       }
     },
+    "goals.warning.lowCarbs": {
+      "comment": "Warn when daily carbohydrates are below the 100 g floor.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carbs below 100 g/day — very-low-carb, consider increasing."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Carbohidratos por debajo de 100 g/día — muy bajo, considera aumentarlos."
+          }
+        }
+      }
+    },
     "goals.warning.lowProtein": {
       "comment": "Warn when protein is below 0.8 g/kg bodyweight.",
       "extractionState": "manual",
