@@ -1,7 +1,7 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -9,23 +9,66 @@ from app.core.deps import get_current_user_id
 from app.core.http import get_client
 from app.core.rate_limit import limiter, tag_user_from_optional_token
 from app.models.product import Product
-from app.schemas.product import ProductCreate, ProductResponse
+from app.schemas.product import ProductCreate, ProductResponse, ProductSearchResponse
 from app.services.product_lookup import lookup_product
 
 router = APIRouter()
 
 
-@router.get("/search", response_model=ProductResponse)
+def escape_like(s: str) -> str:
+    """Escape SQL LIKE wildcard characters so user input can't act as a
+    wildcard or force a full-table scan. Mirrors `exercises.escape_like`."""
+    return s.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
+@router.get("/search", response_model=ProductSearchResponse)
 @limiter.limit("60/minute")
-async def search_product_by_barcode(
+async def search_products(
+    request: Request,
+    q: str = Query(
+        min_length=1,
+        max_length=100,
+        description="Case-insensitive match against product name and brand.",
+    ),
+    limit: int = Query(default=20, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(tag_user_from_optional_token),
+) -> ProductSearchResponse:
+    """Free-text search over **locally cached** products by name or brand.
+
+    Returns an envelope ``{"results": [...]}`` (possibly empty — an empty
+    result set is a normal outcome, not a 404). This only reads the local
+    cache; resolving an unknown barcode against external APIs is the job of
+    ``GET /barcode/{barcode}``. Rate-limited at 60/minute per user or IP.
+    """
+    pattern = f"%{escape_like(q)}%"
+    result = await db.execute(
+        select(Product)
+        .where(or_(Product.name.ilike(pattern), Product.brand.ilike(pattern)))
+        .order_by(Product.name)
+        .limit(limit)
+    )
+    products = list(result.scalars().all())
+    return ProductSearchResponse(
+        results=[ProductResponse.model_validate(p) for p in products]
+    )
+
+
+@router.get("/barcode/{barcode}", response_model=ProductResponse)
+@limiter.limit("60/minute")
+async def lookup_product_by_barcode(
     request: Request,
     barcode: str,
     db: AsyncSession = Depends(get_db),
     _: None = Depends(tag_user_from_optional_token),
 ) -> Product:
-    """Look up a product by barcode. Checks local cache first, then external APIs.
+    """Look up a product by barcode. Checks the local cache first, then
+    cascades through external APIs (OFF -> FatSecret -> USDA), caching any
+    hit. Returns 404 when no source recognizes the barcode.
 
-    Rate-limited at 60/minute per user (when authenticated) or per IP otherwise.
+    The path segment is a *raw barcode string*, deliberately distinct from
+    ``GET /{product_id}`` (which validates a UUID and would 422 on a numeric
+    barcode). Rate-limited at 60/minute per user or IP.
     """
     # 1. Check local DB cache
     result = await db.execute(select(Product).where(Product.barcode == barcode))

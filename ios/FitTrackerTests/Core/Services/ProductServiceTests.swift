@@ -41,11 +41,14 @@ struct ProductServiceTests {
     {"results":[\#(oatmealJSON)]}
     """#
 
-    @Test("lookup(barcode:) hits /products/{barcode} and decodes")
+    @Test("lookup(barcode:) hits /products/barcode/{barcode} and decodes")
     func lookup_decodesProduct() async throws {
         let sut = makeSUT()
         MockURLProtocol.handler = { req in
-            #expect(req.url?.path.hasSuffix("/api/v1/products/7501055302345") == true)
+            // Barcode lookup MUST use the dedicated /barcode/ route. The bare
+            // /products/{id} route is UUID-typed on the backend and 422s on a
+            // numeric barcode, so a raw-barcode path there never resolves.
+            #expect(req.url?.path.hasSuffix("/api/v1/products/barcode/7501055302345") == true)
             return (Self.ok(req), Data(Self.oatmealJSON.utf8))
         }
 
@@ -80,6 +83,31 @@ struct ProductServiceTests {
         let results = try await sut.search(query: "avena")
         #expect(results.count == 1)
         #expect(results.first?.brand == "Quaker")
+    }
+
+    @Test("search(query:) returns [] for blank input without any network call")
+    func search_blankQueryShortCircuits() async throws {
+        let sut = makeSUT()
+        MockURLProtocol.handler = { req in
+            Issue.record("search(blank) must not perform a network request")
+            return (Self.ok(req), Data(Self.searchJSON.utf8))
+        }
+        let results = try await sut.search(query: "   ")
+        #expect(results.isEmpty)
+    }
+
+    @Test("search(query:) percent-encodes multi-word queries in the q param")
+    func search_encodesMultiWordQuery() async throws {
+        let sut = makeSUT()
+        MockURLProtocol.handler = { req in
+            let url = req.url!
+            #expect(url.path.hasSuffix("/api/v1/products/search"))
+            let q = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "q" }?.value
+            #expect(q == "pan integral")
+            return (Self.ok(req), Data(Self.searchJSON.utf8))
+        }
+        _ = try await sut.search(query: "pan integral")
     }
 
     // MARK: - Helpers

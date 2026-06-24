@@ -3,9 +3,14 @@
 //  Slice 3: real ProductsServiceProtocol implementation. Routes calls
 //  through APIClient and translates DTOs to domain Product structs.
 //
-//  Backend contract (per SPEC.md §11):
-//    GET /api/v1/products/{barcode}        → ProductDTO | 404
-//    GET /api/v1/products/search?q=<text>  → { results: [ProductDTO] }
+//  Backend contract (FastAPI `app/api/v1/products.py`):
+//    GET  /api/v1/products/search?q=<text>   → { results: [ProductDTO] }   (free-text, local cache)
+//    GET  /api/v1/products/barcode/{barcode} → ProductDTO | 404            (barcode; cascades to external APIs)
+//    GET  /api/v1/products/{uuid}            → ProductDTO | 404            (by primary key; not used for barcodes)
+//    POST /api/v1/products                   → 201 ProductDTO              (manual create)
+//
+//  Barcode lookup uses the dedicated /barcode/{barcode} route because the
+//  bare /{product_id} route validates a UUID and 422s on a numeric barcode.
 //
 //  Network errors propagate; APIError.notFound on lookup is collapsed
 //  to `nil` because "no such barcode" is a normal lookup result, not a
@@ -39,7 +44,7 @@ final class ProductService: ProductsServiceProtocol, @unchecked Sendable {
     /// open the "create custom food" path.
     func lookup(barcode: String) async throws -> Product? {
         do {
-            let dto: ProductDTO = try await api.get("/api/v1/products/\(barcode)")
+            let dto: ProductDTO = try await api.get("/api/v1/products/barcode/\(barcode)")
             return Product(from: dto)
         } catch APIError.notFound {
             return nil
