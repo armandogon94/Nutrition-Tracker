@@ -21,6 +21,9 @@ struct ProductServiceTests {
         return ProductService(api: api)
     }
 
+    // Realistic backend `ProductResponse` payload: the backend emits
+    // `calories` and `source` (plus image_url / created_at, which the client
+    // ignores). It does NOT emit `calories_per_serving` or `category`.
     private static let oatmealJSON = #"""
     {
       "id": "00000000-0000-0000-0000-000000000010",
@@ -28,12 +31,14 @@ struct ProductServiceTests {
       "name": "Avena tradicional",
       "brand": "Quaker",
       "serving_size_g": 40,
-      "calories_per_serving": 150,
+      "calories": 150,
       "protein_g": 5,
       "carbs_g": 27,
       "fat_g": 3,
       "fiber_g": 4,
-      "category": "Granos"
+      "source": "open_food_facts",
+      "image_url": null,
+      "created_at": "2026-06-04T12:00:00Z"
     }
     """#
 
@@ -55,7 +60,10 @@ struct ProductServiceTests {
         let product = try await sut.lookup(barcode: "7501055302345")
         #expect(product?.name == "Avena tradicional")
         #expect(product?.barcode == "7501055302345")
-        #expect(product?.caloriesPerServing == 150)
+        #expect(product?.caloriesPerServing == 150)   // decoded from backend `calories`
+        // Backend has no category column → defaulted to "" (server-only
+        // fields source/image_url/created_at are ignored, not required).
+        #expect(product?.category == "")
     }
 
     @Test("lookup(barcode:) returns nil on 404")

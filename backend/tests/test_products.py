@@ -354,6 +354,38 @@ async def test_get_product_by_nonuuid_path_is_422(client):
     assert response.status_code == 422
 
 
+# ---- Response field-name contract (consumed by the iOS ProductDTO) ----
+
+
+async def test_response_uses_calories_and_source_keys(client, db_session):
+    """Pin the response field names the iOS ProductDTO decodes.
+
+    The backend emits `calories` (per serving) and `source`; it has no
+    food-category column. iOS used to expect `calories_per_serving` and
+    `category`, which never existed in the response — this guards against
+    that mismatch reappearing on the backend side. Both the barcode lookup
+    and the search results must carry the same field names.
+    """
+    db_session.add(
+        _make_product(barcode="123", name="Avena", brand="Quaker", source="open_food_facts")
+    )
+    await db_session.commit()
+
+    item = (await client.get("/api/v1/products/barcode/123")).json()
+    assert "calories" in item
+    assert "source" in item
+    assert "calories_per_serving" not in item
+    assert "category" not in item
+
+    result = (await client.get("/api/v1/products/search", params={"q": "avena"})).json()
+    assert result["results"], "expected at least one search hit"
+    keys = result["results"][0].keys()
+    assert "calories" in keys
+    assert "source" in keys
+    assert "calories_per_serving" not in keys
+    assert "category" not in keys
+
+
 async def test_health_check(client):
     response = await client.get("/health")
     assert response.status_code == 200
