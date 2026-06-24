@@ -318,6 +318,125 @@ struct MealPlanServiceTests {
         #expect(stored.first?.checked == true, "check state must persist to SwiftData")
     }
 
+    // MARK: - Slice 4 B1 regression — no server-side data loss on cold-launch move
+
+    @MainActor
+    @Test("moving a server-sourced item without a known product_id never DELETEs it (no data loss)")
+    func mealPlan_moveColdCacheItemDoesNotDeleteOrLose() async throws {
+        let (sut, ctx) = try makeSUT()
+
+        // Simulate the post-relaunch state: a plan + item read straight from
+        // the SwiftData cache. Crucially there was NO prior addItem(), so the
+        // in-memory productIdByItem map has no entry for this item — exactly
+        // the cold-cache branch in moveItem. The bug: the old code DELETEd the
+        // server row and cleared pendingSync, recreating nothing → the item
+        // was lost server-side forever, even online.
+        let planUUID = UUID(uuidString: Self.planId)!
+        let planEntity = MealPlanEntity(id: planUUID, userId: Self.userId,
+                                        weekStartDate: .now,
+                                        pendingSync: false, lastSyncedAt: .now)
+        let itemUUID = UUID(uuidString: "00000000-0000-0000-0000-0000000000CA")!
+        let itemEntity = MealPlanItemEntity(id: itemUUID, dayIndex: 0,
+                                            mealType: MealType.breakfast.rawValue,
+                                            productName: "Avena tradicional",
+                                            servings: 1.0, pendingSync: false)
+        itemEntity.plan = planEntity
+        planEntity.items = [itemEntity]
+        ctx.insert(planEntity)
+        try ctx.save()
+
+        // The backend is fully online and would happily 204 a DELETE — so if
+        // the service issues one, this records it and the test fails.
+        let sawDelete = Counter()
+        MockURLProtocol.handler = { req in
+            if req.httpMethod == "DELETE" {
+                sawDelete.increment()
+            }
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 204,
+                                       httpVersion: "HTTP/1.1", headerFields: nil)!
+            return (resp, Data())
+        }
+
+        // Move the item. With no known product_id the service can't recreate
+        // it server-side, so it must keep the optimistic local move pending
+        // and NOT delete the server row.
+        try await sut.moveItem(itemUUID, toDay: 3, mealType: .lunch, inPlan: planUUID)
+
+        #expect(sawDelete.value == 0,
+                "must not DELETE a server item it cannot recreate (would lose it)")
+
+        // The item still exists locally, moved, and flagged for later sync.
+        let stored = try ctx.fetch(FetchDescriptor<MealPlanItemEntity>())
+        #expect(stored.count == 1, "item must not be lost")
+        #expect(stored.first?.dayIndex == 3)
+        #expect(stored.first?.mealType == MealType.lunch.rawValue)
+        #expect(stored.first?.pendingSync == true,
+                "pending flag stays set so the move can replay once product_id is known")
+    }
+
+    @MainActor
+    @Test("currentPlan repopulates product ids from the server so a later move recreates server-side")
+    func mealPlan_currentPlanReconcilesProductIdsForMove() async throws {
+        let (sut, ctx) = try makeSUT()
+
+        // Post-relaunch cache: plan + one item, empty in-memory product map.
+        let planUUID = UUID(uuidString: Self.planId)!
+        let itemUUID = UUID(uuidString: "00000000-0000-0000-0000-0000000000C1")!
+        let planEntity = MealPlanEntity(id: planUUID, userId: Self.userId,
+                                        weekStartDate: .now,
+                                        pendingSync: false, lastSyncedAt: .now)
+        let itemEntity = MealPlanItemEntity(id: itemUUID, dayIndex: 0,
+                                            mealType: MealType.breakfast.rawValue,
+                                            productName: "Avena tradicional",
+                                            servings: 1.0, pendingSync: false)
+        itemEntity.plan = planEntity
+        planEntity.items = [itemEntity]
+        ctx.insert(planEntity)
+        try ctx.save()
+
+        // currentPlan() should GET the plan to recover each item's product_id.
+        // The server item id matches the cached row so the map keys line up.
+        MockURLProtocol.handler = { req in
+            #expect(req.httpMethod == "GET")
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 200,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            let item = Self.itemJSON(id: itemUUID.uuidString, day: 0,
+                                     mealType: "breakfast",
+                                     productName: "Avena tradicional")
+            return (resp, Data(Self.planJSON(items: item).utf8))
+        }
+        _ = try await sut.currentPlan()
+
+        // Now a move HAS a product_id, so it deletes the old + recreates it.
+        let sawDelete = Counter()
+        let sawPost = Counter()
+        let newServerId = "00000000-0000-0000-0000-0000000000C2"
+        MockURLProtocol.handler = { req in
+            if req.httpMethod == "DELETE" {
+                sawDelete.increment()
+                let resp = HTTPURLResponse(url: req.url!, statusCode: 204,
+                                           httpVersion: "HTTP/1.1", headerFields: nil)!
+                return (resp, Data())
+            }
+            sawPost.increment()
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 201,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            let body = Self.itemJSON(id: newServerId, day: 2, mealType: "dinner",
+                                     productName: "Avena tradicional")
+            return (resp, Data(body.utf8))
+        }
+        try await sut.moveItem(itemUUID, toDay: 2, mealType: .dinner, inPlan: planUUID)
+
+        #expect(sawDelete.value >= 1, "reconciled product_id lets the move delete server-side")
+        #expect(sawPost.value >= 1, "and recreate the item on the new day")
+        let stored = try ctx.fetch(FetchDescriptor<MealPlanItemEntity>())
+        #expect(stored.count == 1, "no duplicate after recreate")
+        #expect(stored.first?.dayIndex == 2)
+        #expect(stored.first?.pendingSync == false, "synced after successful recreate")
+    }
+
     // MARK: - Task 4.6 RED tests — offline correctness
 
     @MainActor
