@@ -15,7 +15,7 @@ import Observation
 
 @MainActor
 @Observable
-final class AuthService: AuthServiceProtocol {
+final class AuthService: AuthServiceProtocol, TokenRefreshing {
 
     // MARK: - Public observable state (read by AppRoot / AuthGate)
 
@@ -117,6 +117,23 @@ final class AuthService: AuthServiceProtocol {
         if let access = keychain.currentAccessToken(), !isExpiringSoon() {
             return access
         }
+        return try await refreshSingleFlight()
+    }
+
+    /// `TokenRefreshing` conformance. Called by `APIClient` when a request
+    /// comes back 401: the access token the server just rejected is stale
+    /// regardless of its local expiry clock, so this ALWAYS forces a refresh
+    /// (no near-expiry short-circuit) and returns the new token. Shares the
+    /// same single-flight task as `currentAccessTokenIfValid()`, so a wave of
+    /// concurrent 401s across the app still collapses into one refresh
+    /// round-trip (see ADR-0003).
+    func refreshAccessToken() async throws -> String {
+        try await refreshSingleFlight()
+    }
+
+    /// Performs a refresh, deduplicating concurrent callers onto one in-flight
+    /// `Task` so only a single `/auth/refresh` round-trip runs per window.
+    private func refreshSingleFlight() async throws -> String {
         // Reuse an in-flight refresh if one is already running.
         if let task = inFlightRefresh {
             return try await task.value

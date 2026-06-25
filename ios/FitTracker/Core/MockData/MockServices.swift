@@ -348,9 +348,12 @@ final class MockServiceContainer {
     static func production() -> MockServiceContainer {
         let auth = AuthService()
         // ONE shared authenticated client for the whole app, so every domain
-        // sends the same Bearer token and (once the 401 interceptor lands)
-        // shares a single-flight token refresh rather than racing its own.
+        // sends the same Bearer token and shares a single-flight token refresh
+        // rather than racing its own. AuthService is registered as the client's
+        // TokenRefreshing coordinator so a 401 on ANY request drives a single
+        // refresh + retry across every service.
         let api = APIClient(tokenProvider: KeychainTokenStore.shared)
+        api.setRefresher(auth)
 
         let liveContainer = PersistenceController.live.container
         let liveContext = liveContainer.mainContext
