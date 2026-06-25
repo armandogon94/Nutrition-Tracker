@@ -13,6 +13,7 @@ import Foundation
 enum GoalWarning: Hashable, Sendable {
     case lowCalories   // below the sex-specific floor (1200 F / 1500 M)
     case lowProtein    // below 0.8 g per kg bodyweight
+    case lowCarbs      // below the 100 g/day floor (CLAUDE.md)
 }
 
 enum GoalsViewModel {
@@ -25,6 +26,10 @@ enum GoalsViewModel {
 
     /// Minimum advisable protein: 0.8 g per kg bodyweight (RDA baseline).
     static let proteinPerKgFloor: Double = 0.8
+
+    /// Daily-carb floor below which we warn. Mirrors CLAUDE.md ("Warn if …
+    /// carbs < 100g") — very-low-carb targets are flagged, never blocked.
+    static let carbFloorGrams = 100
 
     /// The concrete macro target for a preset, given the user's TDEE and
     /// bodyweight. Delegates entirely to `TDEECalculator.macros` so presets
@@ -42,6 +47,9 @@ enum GoalsViewModel {
         }
         if Double(goal.proteinG) < weightKg * proteinPerKgFloor {
             result.insert(.lowProtein)
+        }
+        if goal.carbsG < carbFloorGrams {
+            result.insert(.lowCarbs)
         }
         return result
     }

@@ -27,11 +27,13 @@
 //    2. `MealPlanItemEntity` (Schema.swift, owned by main) does not store
 //       `product_id`. The backend's item-POST requires one, so we keep a
 //       small in-memory itemId -> productId map populated whenever items
-//       arrive from the server (their DTOs carry product_id). If the id
-//       is unknown (e.g. a cold launch reading only cached rows), the move
-//       still succeeds locally and the server recreate is skipped — the
-//       offline-first stance. Persisting product_id needs a schema bump
-//       (reported back to main).
+//       arrive from the server (their DTOs carry product_id). If the id is
+//       unknown (e.g. a cold launch reading only cached rows), the move
+//       still succeeds locally and is left pendingSync=true — we do NOT
+//       issue the DELETE, because deleting without recreating would lose
+//       the item server-side permanently. `currentPlan()` repopulates the
+//       map from a best-effort server GET so a subsequent move can replay.
+//       Persisting product_id needs a schema bump (reported back to main).
 //
 
 import Foundation
@@ -160,13 +162,18 @@ final class MealPlanService: MealPlanningServiceProtocol {
         try context.save()
 
         // No item-PATCH server-side: DELETE the old, POST the new. If we
-        // never learned the product_id we cannot recreate it remotely —
-        // local state stays authoritative (offline-first).
+        // never learned the product_id we cannot recreate it remotely.
         guard let productId = productIdByItem[itemId] else {
-            // Best-effort delete so the stale server row doesn't linger;
-            // local move already persisted. Swallow errors (offline).
-            _ = try? await api.delete("/api/v1/meal-plans/\(planId.uuidString)/items/\(itemId.uuidString)")
-            item.pendingSync = false
+            // We can't recreate the item server-side without its product_id,
+            // so we must NOT delete the server row — doing so would
+            // permanently lose the item (the DELETE succeeds online, but the
+            // recreate never happens). Keep the optimistic local move with
+            // pendingSync=true so a later sync — once the product_id is known
+            // (e.g. after currentPlan() repopulates the map from the server) —
+            // can replay the move. Losing user input is worse than a stale
+            // server row (ADR-0004 §4). The map is repopulated on the next
+            // currentPlan() load; see `reconcileProductIdsFromServer`.
+            item.pendingSync = true
             try context.save()
             return
         }
@@ -279,7 +286,29 @@ final class MealPlanService: MealPlanningServiceProtocol {
         )
         descriptor.fetchLimit = 1
         guard let entity = try context.fetch(descriptor).first else { return nil }
+
+        // Repopulate the itemId -> productId map from the server. After a cold
+        // launch the map is empty (it lives in memory only — see header note
+        // 2), so a move would otherwise hit the "unknown product_id" branch
+        // and stay forever-pending. A best-effort GET reconciles it so online
+        // moves recreate the item server-side. Failures (offline) are
+        // ignored — the cached plan is still returned.
+        if productIdByItem.isEmpty {
+            await reconcileProductIdsFromServer(planId: entity.id)
+        }
+
         return MealPlan(from: entity)
+    }
+
+    /// Best-effort: fetch the plan from the backend purely to recover each
+    /// item's `product_id` into the in-memory map. Used by `currentPlan()`
+    /// after a cold launch so moves of server-sourced items can replay
+    /// server-side. Never throws — a failure just leaves the map empty.
+    private func reconcileProductIdsFromServer(planId: UUID) async {
+        guard let dto: MealPlanDTO = try? await api.get(
+            "/api/v1/meal-plans/\(planId.uuidString)"
+        ) else { return }
+        cacheProductIds(from: dto)
     }
 
     func shoppingList() async throws -> [ShoppingItem] {

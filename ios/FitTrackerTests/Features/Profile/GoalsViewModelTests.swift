@@ -71,6 +71,24 @@ struct GoalsViewModelTests {
         #expect(warnings.contains(.lowProtein))
     }
 
+    @Test("Low carbs warn below the 100 g/day floor (CLAUDE.md)")
+    func warnings_lowCarbs() {
+        // 80 g/day is below the 100 g floor → warn (calories/protein kept healthy).
+        let goal = NutritionGoal(dailyCalories: 2200, proteinG: 170, carbsG: 80, fatG: 110, fiberG: 25)
+        let warnings = GoalsViewModel.warnings(for: goal, sex: .male, weightKg: 80)
+        #expect(warnings.contains(.lowCarbs))
+        // Isolated to the carb rule — nothing else here is out of bounds.
+        #expect(!warnings.contains(.lowCalories))
+        #expect(!warnings.contains(.lowProtein))
+    }
+
+    @Test("Exactly 100 g of carbs is at the floor and does not warn")
+    func warnings_carbFloorBoundary() {
+        let goal = NutritionGoal(dailyCalories: 2200, proteinG: 170, carbsG: 100, fatG: 90, fiberG: 25)
+        let warnings = GoalsViewModel.warnings(for: goal, sex: .male, weightKg: 80)
+        #expect(!warnings.contains(.lowCarbs), "100 g is the floor, not below it")
+    }
+
     @Test("A balanced custom goal produces no warnings")
     func warnings_none() {
         let goal = NutritionGoal(dailyCalories: 2200, proteinG: 170, carbsG: 230, fatG: 70, fiberG: 25)

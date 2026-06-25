@@ -9,6 +9,7 @@ import SwiftUI
 
 struct ProgramDetailView: View {
     @Environment(\.appTheme) private var theme
+    @Environment(MockServiceContainer.self) private var services
 
     let program: WorkoutProgram
     var injectedService: (any ProgramsServiceProtocol)?
@@ -18,6 +19,8 @@ struct ProgramDetailView: View {
     @State private var days: [WorkoutProgramDay] = []
     @State private var isLoading = false
     @State private var showStartToast = false
+    /// Slice 7 wiring: non-nil pushes the active-workout logger for a day.
+    @State private var activeConfig: SessionConfig?
 
     var body: some View {
         ZStack {
@@ -34,13 +37,7 @@ struct ProgramDetailView: View {
                         noDaysCard
                     } else {
                         ForEach(days, id: \.id) { day in
-                            DayCard(day: day, onStart: {
-                                showStartToast = true
-                                Task {
-                                    try? await Task.sleep(nanoseconds: 2_500_000_000)
-                                    showStartToast = false
-                                }
-                            })
+                            DayCard(day: day, onStart: { start(day) })
                         }
                     }
                     Spacer(minLength: 60)
@@ -62,6 +59,30 @@ struct ProgramDetailView: View {
         .navigationTitle(program.name)
         .navigationBarTitleDisplayMode(.inline)
         .task { await loadDays() }
+        .navigationDestination(item: $activeConfig) { config in
+            SessionView(config: config)
+        }
+    }
+
+    /// Builds a `SessionConfig` for the tapped day and pushes `SessionView`.
+    /// Falls back to the existing toast when there's no signed-in user.
+    private func start(_ day: WorkoutProgramDay) {
+        guard let userId = services.auth.currentUser?.id else {
+            showStartToast = true
+            Task {
+                try? await Task.sleep(nanoseconds: 2_500_000_000)
+                showStartToast = false
+            }
+            return
+        }
+        activeConfig = SessionConfig(
+            programName: program.name,
+            dayName: day.dayName,
+            programId: program.id,
+            programDayId: day.id,
+            exercises: day.exercises,
+            userId: userId
+        )
     }
 
     // MARK: - Subviews
