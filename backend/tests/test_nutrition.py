@@ -86,6 +86,47 @@ async def test_weekly_nutrition(auth_client, db_session, test_user):
     assert data[2]["total_calories"] == 0.0
 
 
+async def test_daily_nutrition_scales_by_grams(auth_client, db_session, test_user):
+    """Items logged by grams scale macros by quantity_grams / serving_size_g
+    (regression test for the Codex cycle-2 gram-scaling fix)."""
+    meal_date = date.fromisoformat("2026-04-14")
+    product = Product(
+        barcode=f"NUT-{uuid.uuid4().hex[:8]}",
+        name="Oats",
+        brand="Generic",
+        serving_size_g=100.0,
+        calories=200.0,
+        protein_g=10.0,
+        carbs_g=40.0,
+        fat_g=4.0,
+        fiber_g=8.0,
+        source="manual",
+    )
+    db_session.add(product)
+    await db_session.commit()
+
+    meal = Meal(user_id=test_user.id, meal_type="breakfast", meal_date=meal_date)
+    db_session.add(meal)
+    await db_session.commit()
+
+    # Logged by grams (250g of a 100g serving = 2.5x); servings=1.0 must be ignored.
+    item = MealItem(
+        meal_id=meal.id,
+        product_id=product.id,
+        quantity_grams=250.0,
+        quantity_servings=1.0,
+    )
+    db_session.add(item)
+    await db_session.commit()
+
+    response = await auth_client.get("/api/v1/nutrition/daily/2026-04-14")
+    assert response.status_code == 200
+    data = response.json()
+    # 250g / 100g = 2.5x → 200*2.5 = 500 cal (NOT 200*1 serving).
+    assert data["total_calories"] == pytest.approx(500.0, rel=0.01)
+    assert data["total_protein_g"] == pytest.approx(25.0, rel=0.01)
+
+
 async def test_unauthorized_401(client):
     response = await client.get("/api/v1/nutrition/daily/2026-04-01")
     assert response.status_code == 401
