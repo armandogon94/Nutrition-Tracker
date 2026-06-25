@@ -60,6 +60,64 @@ async def test_list_meal_plans(auth_client):
     assert len(data) >= 2
 
 
+async def test_list_meal_plans_filtered_by_week(auth_client):
+    """`?week_start_date=` returns only the plan(s) for that exact week so the
+    iOS client can fetch the right week instead of guessing the latest
+    (Codex cycle-3 finding #1 — week-scoped meal-plan contract)."""
+    await auth_client.post(
+        "/api/v1/meal-plans",
+        json={"name": "Week of Apr 13", "week_start_date": "2026-04-13"},
+    )
+    await auth_client.post(
+        "/api/v1/meal-plans",
+        json={"name": "Week of Apr 20", "week_start_date": "2026-04-20"},
+    )
+
+    response = await auth_client.get(
+        "/api/v1/meal-plans", params={"week_start_date": "2026-04-20"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["week_start_date"] == "2026-04-20"
+    assert data[0]["name"] == "Week of Apr 20"
+
+
+async def test_list_meal_plans_filtered_by_week_empty(auth_client):
+    """A week with no plan returns an empty list (not another week's plan)."""
+    await auth_client.post(
+        "/api/v1/meal-plans",
+        json={"name": "Some Plan", "week_start_date": "2026-04-13"},
+    )
+
+    response = await auth_client.get(
+        "/api/v1/meal-plans", params={"week_start_date": "2026-05-25"}
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_list_meal_plans_week_filter_is_user_scoped(auth_client, auth_client_b):
+    """The week filter must not leak another user's plan for the same week."""
+    # User A and user B both have a plan for the same week.
+    await auth_client.post(
+        "/api/v1/meal-plans",
+        json={"name": "A's week", "week_start_date": "2026-04-20"},
+    )
+    await auth_client_b.post(
+        "/api/v1/meal-plans",
+        json={"name": "B's week", "week_start_date": "2026-04-20"},
+    )
+
+    resp_a = await auth_client.get(
+        "/api/v1/meal-plans", params={"week_start_date": "2026-04-20"}
+    )
+    assert resp_a.status_code == 200
+    data_a = resp_a.json()
+    assert len(data_a) == 1
+    assert data_a[0]["name"] == "A's week"
+
+
 async def test_get_meal_plan(auth_client):
     create_resp = await auth_client.post(
         "/api/v1/meal-plans",
