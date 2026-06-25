@@ -58,12 +58,14 @@ final class MealPlanStore {
 
     // MARK: - Loading
 
-    /// Load the cached plan for the current week. Read-through: SwiftData
-    /// first; a fresh launch with no plan yields nil (UI shows the create
-    /// affordance).
+    /// Load the cached plan for the shown week and current user. Read-through:
+    /// SwiftData first; a week with no plan for this user yields nil (UI shows
+    /// the create affordance). Scoping by `weekStart` makes the prev/next-week
+    /// controls truthful, and scoping by `userId` keeps a shared device from
+    /// surfacing another account's plan.
     func load() async {
         do {
-            plan = try await service.currentPlan()
+            plan = try await service.currentPlan(forWeek: weekStart, userId: userId)
         } catch {
             errorMessage = error.localizedDescription
         }

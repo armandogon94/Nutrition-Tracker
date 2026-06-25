@@ -382,8 +382,9 @@ struct MealPlanServiceTests {
         // Post-relaunch cache: plan + one item, empty in-memory product map.
         let planUUID = UUID(uuidString: Self.planId)!
         let itemUUID = UUID(uuidString: "00000000-0000-0000-0000-0000000000C1")!
+        let week = Date(timeIntervalSince1970: 1_500_000)
         let planEntity = MealPlanEntity(id: planUUID, userId: Self.userId,
-                                        weekStartDate: .now,
+                                        weekStartDate: week,
                                         pendingSync: false, lastSyncedAt: .now)
         let itemEntity = MealPlanItemEntity(id: itemUUID, dayIndex: 0,
                                             mealType: MealType.breakfast.rawValue,
@@ -406,7 +407,7 @@ struct MealPlanServiceTests {
                                      productName: "Avena tradicional")
             return (resp, Data(Self.planJSON(items: item).utf8))
         }
-        _ = try await sut.currentPlan()
+        _ = try await sut.currentPlan(forWeek: week, userId: Self.userId)
 
         // Now a move HAS a product_id, so it deletes the old + recreates it.
         let sawDelete = Counter()
@@ -515,22 +516,134 @@ struct MealPlanServiceTests {
     }
 
     @MainActor
-    @Test("currentPlan reads the most recent plan from the SwiftData cache")
-    func mealPlan_currentPlanReadsCache() async throws {
+    @Test("currentPlan(forWeek:userId:) reads the plan for that exact week from the cache")
+    func mealPlan_currentPlanReadsCacheForWeek() async throws {
         let (sut, ctx) = try makeSUT()
 
-        let older = MealPlanEntity(id: UUID(), userId: Self.userId,
-                                   weekStartDate: Date(timeIntervalSince1970: 1_000_000),
+        let weekA = Date(timeIntervalSince1970: 1_000_000)
+        let weekB = Date(timeIntervalSince1970: 2_000_000)
+        let planA = MealPlanEntity(id: UUID(), userId: Self.userId,
+                                   weekStartDate: weekA,
                                    pendingSync: false, lastSyncedAt: .now)
-        let newer = MealPlanEntity(id: UUID(), userId: Self.userId,
-                                   weekStartDate: Date(timeIntervalSince1970: 2_000_000),
+        let planB = MealPlanEntity(id: UUID(), userId: Self.userId,
+                                   weekStartDate: weekB,
                                    pendingSync: false, lastSyncedAt: .now)
-        ctx.insert(older)
-        ctx.insert(newer)
+        ctx.insert(planA)
+        ctx.insert(planB)
         try ctx.save()
 
-        let plan = try await sut.currentPlan()
-        #expect(plan?.id == newer.id, "currentPlan returns the latest week")
+        // Asking for weekA must return planA — NOT the latest cached plan.
+        let plan = try await sut.currentPlan(forWeek: weekA, userId: Self.userId)
+        #expect(plan?.id == planA.id, "currentPlan must return the plan for the requested week")
+    }
+
+    // MARK: - Codex cycle 3 finding #1 — week + user scoping
+
+    /// Two users, same device, same week: each must only ever see their own
+    /// plan. The pre-fix code returned the globally-latest plan, leaking the
+    /// other user's plan on a shared device.
+    @MainActor
+    @Test("currentPlan is scoped by userId so a shared device never crosses users")
+    func mealPlan_currentPlanScopedByUser() async throws {
+        let (sut, ctx) = try makeSUT()
+
+        let week = Date(timeIntervalSince1970: 1_700_000)
+        let userA = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!
+        let userB = UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!
+        let planA = MealPlanEntity(id: UUID(), userId: userA, weekStartDate: week,
+                                   pendingSync: false, lastSyncedAt: .now)
+        let planB = MealPlanEntity(id: UUID(), userId: userB, weekStartDate: week,
+                                   pendingSync: false, lastSyncedAt: .now)
+        ctx.insert(planA)
+        ctx.insert(planB)
+        try ctx.save()
+
+        let forA = try await sut.currentPlan(forWeek: week, userId: userA)
+        #expect(forA?.id == planA.id, "user A sees only their own plan")
+
+        let forB = try await sut.currentPlan(forWeek: week, userId: userB)
+        #expect(forB?.id == planB.id, "user B sees only their own plan")
+    }
+
+    /// A week with no cached plan for this user returns nil (the UI shows the
+    /// "create plan" affordance) even when other weeks/users have plans.
+    @MainActor
+    @Test("currentPlan returns nil for a week with no plan for this user")
+    func mealPlan_currentPlanEmptyForUnknownWeek() async throws {
+        let (sut, ctx) = try makeSUT()
+
+        let populatedWeek = Date(timeIntervalSince1970: 1_000_000)
+        let emptyWeek = Date(timeIntervalSince1970: 5_000_000)
+        let plan = MealPlanEntity(id: UUID(), userId: Self.userId,
+                                  weekStartDate: populatedWeek,
+                                  pendingSync: false, lastSyncedAt: .now)
+        ctx.insert(plan)
+        try ctx.save()
+
+        let result = try await sut.currentPlan(forWeek: emptyWeek, userId: Self.userId)
+        #expect(result == nil, "an unplanned week must yield nil, not another week's plan")
+    }
+
+    /// `shoppingList(forPlan:)` returns only the active plan's list, even when
+    /// the cache holds a newer list for a different plan.
+    @MainActor
+    @Test("shoppingList(forPlan:) returns only the list for the requested plan")
+    func shoppingList_scopedByPlan() async throws {
+        let (sut, ctx) = try makeSUT()
+
+        let planA = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!
+        let planB = UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!
+
+        // Older list belongs to planA; newer list belongs to planB.
+        let listA = ShoppingListEntity(id: UUID(), mealPlanId: planA,
+                                       generatedAt: Date(timeIntervalSince1970: 1_000),
+                                       lastSyncedAt: .now)
+        let itemA = ShoppingListItemEntity(id: UUID(), name: "Avena", quantity: "200 g",
+                                           category: ShoppingCategory.grains.rawValue)
+        itemA.list = listA
+        listA.items = [itemA]
+
+        let listB = ShoppingListEntity(id: UUID(), mealPlanId: planB,
+                                       generatedAt: Date(timeIntervalSince1970: 9_000),
+                                       lastSyncedAt: .now)
+        let itemB = ShoppingListItemEntity(id: UUID(), name: "Leche", quantity: "1000 g",
+                                           category: ShoppingCategory.dairy.rawValue)
+        itemB.list = listB
+        listB.items = [itemB]
+
+        ctx.insert(listA)
+        ctx.insert(listB)
+        try ctx.save()
+
+        // Even though listB is newer, asking for planA must return listA's items.
+        let items = try await sut.shoppingList(forPlan: planA)
+        #expect(items.count == 1)
+        #expect(items.first?.name == "Avena", "must read the requested plan's list, not the latest")
+    }
+
+    /// `currentShoppingListId(forPlan:)` resolves to the list for the active
+    /// plan, not the globally-latest list.
+    @MainActor
+    @Test("currentShoppingListId(forPlan:) returns the id for the requested plan")
+    func shoppingList_currentIdScopedByPlan() async throws {
+        let (sut, ctx) = try makeSUT()
+
+        let planA = UUID(uuidString: "00000000-0000-0000-0000-0000000000A1")!
+        let planB = UUID(uuidString: "00000000-0000-0000-0000-0000000000B2")!
+        let listAId = UUID(uuidString: "00000000-0000-0000-0000-0000000000D1")!
+
+        let listA = ShoppingListEntity(id: listAId, mealPlanId: planA,
+                                       generatedAt: Date(timeIntervalSince1970: 1_000),
+                                       lastSyncedAt: .now)
+        let listB = ShoppingListEntity(id: UUID(), mealPlanId: planB,
+                                       generatedAt: Date(timeIntervalSince1970: 9_000),
+                                       lastSyncedAt: .now)
+        ctx.insert(listA)
+        ctx.insert(listB)
+        try ctx.save()
+
+        let id = try await sut.currentShoppingListId(forPlan: planA)
+        #expect(id == listAId, "must address the requested plan's list, not the latest")
     }
 }
 

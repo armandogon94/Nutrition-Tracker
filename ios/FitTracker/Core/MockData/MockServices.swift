@@ -90,9 +90,12 @@ final class MockMealsService: MealsServiceProtocol, @unchecked Sendable {
 final class MockMealPlanService: MealPlanServiceProtocol {
     private var checkedIDs: Set<UUID> = Set(MockData.shoppingList.filter(\.checked).map(\.id))
 
-    func currentPlan() async throws -> MealPlan? { MockData.mealPlan }
+    // The mock holds a single fixture plan/list, so it ignores the week/user/
+    // plan scoping args and always returns the fixture — keeping previews and
+    // tap-through populated regardless of which week/user is requested.
+    func currentPlan(forWeek weekStart: Date, userId: UUID) async throws -> MealPlan? { MockData.mealPlan }
 
-    func shoppingList() async throws -> [ShoppingItem] {
+    func shoppingList(forPlan planId: UUID) async throws -> [ShoppingItem] {
         MockData.shoppingList.map { item in
             var copy = item
             copy.checked = checkedIDs.contains(item.id)
@@ -396,9 +399,12 @@ final class MockMealPlanningService: MealPlanningServiceProtocol {
     private var _shopping: [ShoppingItem] = MockData.shoppingList
     private let _listId = UUID()
 
-    func currentPlan() async throws -> MealPlan? { _plan }
+    // The mock keeps a single in-session plan/list, so it ignores the
+    // week/user/plan scoping args and returns its fixture — previews and the
+    // planner/shopping flows stay populated regardless of the requested scope.
+    func currentPlan(forWeek weekStart: Date, userId: UUID) async throws -> MealPlan? { _plan }
 
-    func shoppingList() async throws -> [ShoppingItem] { _shopping }
+    func shoppingList(forPlan planId: UUID) async throws -> [ShoppingItem] { _shopping }
 
     func toggleChecked(_ itemId: UUID) async throws {
         guard let i = _shopping.firstIndex(where: { $0.id == itemId }) else { return }
@@ -449,5 +455,5 @@ final class MockMealPlanningService: MealPlanningServiceProtocol {
         _shopping[i].checked = checked
     }
 
-    func currentShoppingListId() async throws -> UUID? { _listId }
+    func currentShoppingListId(forPlan planId: UUID) async throws -> UUID? { _listId }
 }

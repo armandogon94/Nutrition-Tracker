@@ -56,7 +56,9 @@ struct MealPlanWeekView: View {
             }
         }
         .navigationDestination(isPresented: $navigateToShopping) {
-            ShoppingListView(initialItems: pendingShoppingItems)
+            // Scope the list to the active week's plan so cache reads and
+            // regeneration never cross into another plan/user's list.
+            ShoppingListView(initialItems: pendingShoppingItems, planId: store?.plan?.id)
         }
     }
 

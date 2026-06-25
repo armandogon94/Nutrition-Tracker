@@ -1,6 +1,7 @@
+from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,11 +35,20 @@ async def create_meal_plan(
 
 @router.get("", response_model=list[MealPlanResponse])
 async def list_meal_plans(
-    user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+    week_start_date: date | None = Query(
+        default=None,
+        description="Optional filter: return only plans whose week starts on this date (YYYY-MM-DD).",
+    ),
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
 ) -> list[MealPlan]:
-    result = await db.execute(
-        select(MealPlan).where(MealPlan.user_id == user_id).order_by(MealPlan.week_start_date.desc())
-    )
+    # Always scope to the caller; optionally narrow to a single week so the
+    # client can fetch exactly the week it is showing instead of the latest.
+    query = select(MealPlan).where(MealPlan.user_id == user_id)
+    if week_start_date is not None:
+        query = query.where(MealPlan.week_start_date == week_start_date)
+    query = query.order_by(MealPlan.week_start_date.desc())
+    result = await db.execute(query)
     return list(result.scalars().all())
 
 
