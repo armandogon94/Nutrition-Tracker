@@ -34,6 +34,21 @@ final class MealService: MealLoggingServiceProtocol {
         self.context = context
     }
 
+    // MARK: - Date encoding
+
+    /// The backend's `meal_date` is a date-only field. APIClient's JSON
+    /// encoder emits full ISO8601 datetimes, which the Pydantic `date`
+    /// validator rejects with a 422 — so we pre-format the day ourselves.
+    /// (Same approach as `MealPlanService` for `week_start_date`.)
+    private static let dateOnly: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .iso8601)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
     // MARK: - Logging
 
     /// Optimistic insert + fire-and-forget sync. Returns synchronously
@@ -96,7 +111,7 @@ final class MealService: MealLoggingServiceProtocol {
         // leave pendingSync=true so the row can be retried.
         let body = LogMealItemRequest(
             meal_type: mealType.rawValue,
-            meal_date: mealDate,
+            meal_date: Self.dateOnly.string(from: mealDate),
             product_id: product.id.uuidString,
             product_name: product.name,
             brand: product.brand,
