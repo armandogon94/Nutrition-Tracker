@@ -186,7 +186,7 @@ struct ShoppingListView: View {
     // MARK: - Actions
 
     private func bootstrap() async {
-        let svc = service ?? MealPlanService(api: APIClient(), context: modelContext)
+        let svc = service ?? MealPlanService(api: APIClient(tokenProvider: KeychainTokenStore.shared), context: modelContext)
         service = svc
 
         if let initialItems, !initialItems.isEmpty {
