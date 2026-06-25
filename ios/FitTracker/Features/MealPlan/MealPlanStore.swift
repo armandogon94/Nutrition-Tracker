@@ -44,7 +44,7 @@ final class MealPlanStore {
     /// when no session is available (previews / Slice 0.5 tap-through).
     static func live(context: ModelContext,
                      userId: UUID = MockData.user.id) -> MealPlanStore {
-        let service = MealPlanService(api: APIClient(), context: context)
+        let service = MealPlanService(api: APIClient(tokenProvider: KeychainTokenStore.shared), context: context)
         return MealPlanStore(service: service, userId: userId)
     }
 

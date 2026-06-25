@@ -34,7 +34,7 @@ struct NutritionServiceTests {
         MockURLProtocol.handler = { req in
             counter.increment()
             let json = #"""
-            {"date":"2026-04-25","calories":2100,"protein_g":150,"carbs_g":210,"fat_g":70,"fiber_g":30}
+            {"nutrition_date":"2026-04-25","total_calories":2100,"total_protein_g":150,"total_carbs_g":210,"total_fat_g":70,"total_fiber_g":30,"meals_count":3}
             """#
             return (HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "1.1", headerFields: nil)!, Data(json.utf8))
         }
@@ -69,7 +69,7 @@ struct NutritionServiceTests {
         MockURLProtocol.handler = { req in
             counter.increment()
             let json = #"""
-            {"date":"2026-04-25","calories":1900,"protein_g":140,"carbs_g":190,"fat_g":60,"fiber_g":25}
+            {"nutrition_date":"2026-04-25","total_calories":1900,"total_protein_g":140,"total_carbs_g":190,"total_fat_g":60,"total_fiber_g":25,"meals_count":2}
             """#
             return (HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "1.1", headerFields: nil)!, Data(json.utf8))
         }
@@ -116,8 +116,8 @@ struct NutritionServiceTests {
         MockURLProtocol.handler = { req in
             calls.increment()
             let json: String = (calls.value == 1)
-                ? #"{"daily_calories":2400,"protein_g":180,"carbs_g":270,"fat_g":70,"fiber_g":35}"#
-                : #"{"daily_calories":2200,"protein_g":170,"carbs_g":250,"fat_g":65,"fiber_g":30}"#
+                ? #"{"daily_calories":2400,"daily_protein_g":180,"daily_carbs_g":270,"daily_fat_g":70}"#
+                : #"{"daily_calories":2200,"daily_protein_g":170,"daily_carbs_g":250,"daily_fat_g":65}"#
             return (HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(json.utf8))
         }
 

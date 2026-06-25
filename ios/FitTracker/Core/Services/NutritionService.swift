@@ -123,13 +123,14 @@ final class NutritionService: NutritionServiceProtocol {
     @discardableResult
     func refreshGoal() async throws -> NutritionGoal {
         guard let uid = userId() else { throw APIError.unauthorized }
-        let dto: NutritionGoalDTO = try await api.get("/api/v1/goals")
+        // Goals are mounted under /nutrition/goals in the backend router.
+        let dto: NutritionGoalDTO = try await api.get("/api/v1/nutrition/goals")
         let fresh = NutritionGoal(
             dailyCalories: dto.daily_calories,
             proteinG: dto.protein_g,
             carbsG: dto.carbs_g,
             fatG: dto.fat_g,
-            fiberG: dto.fiber_g
+            fiberG: dto.fiber_g ?? 0  // backend goal has no fiber target
         )
         try upsertGoal(fresh, userId: uid)
         return fresh
@@ -202,6 +203,16 @@ struct DailyNutritionDTO: Codable, Sendable {
     let fat_g: Double
     let fiber_g: Double
 
+    // Map backend DailyNutritionResponse field names → our shape.
+    enum CodingKeys: String, CodingKey {
+        case date = "nutrition_date"
+        case calories = "total_calories"
+        case protein_g = "total_protein_g"
+        case carbs_g = "total_carbs_g"
+        case fat_g = "total_fat_g"
+        case fiber_g = "total_fiber_g"
+    }
+
     func toStruct() -> DailyNutrition {
         DailyNutrition(
             date: date,
@@ -219,5 +230,14 @@ struct NutritionGoalDTO: Codable, Sendable {
     let protein_g: Int
     let carbs_g: Int
     let fat_g: Int
-    let fiber_g: Int
+    let fiber_g: Int?   // backend NutritionGoalResponse has no fiber target
+
+    // Map backend NutritionGoalResponse field names → our shape.
+    enum CodingKeys: String, CodingKey {
+        case daily_calories
+        case protein_g = "daily_protein_g"
+        case carbs_g = "daily_carbs_g"
+        case fat_g = "daily_fat_g"
+        case fiber_g
+    }
 }
