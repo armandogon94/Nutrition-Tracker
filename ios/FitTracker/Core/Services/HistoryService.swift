@@ -263,7 +263,9 @@ final class HistoryService: HistoryServiceProtocol, @unchecked Sendable {
         let r = Double(cappedReps)
         let brzycki = weightKg * (36.0 / (37.0 - r))
         let epley = weightKg * (1.0 + r / 30.0)
-        return ((brzycki + epley) / 2 * 10).rounded() / 10
+        // Banker's rounding (half-to-even) to match Python round() in
+        // backend/app/services/workout_service.py exactly.
+        return ((brzycki + epley) / 2 * 10).rounded(.toNearestOrEven) / 10
     }
 
     // MARK: - Week math
