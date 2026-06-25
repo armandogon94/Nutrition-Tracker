@@ -46,12 +46,14 @@ extension Product {
             name: dto.name,
             brand: dto.brand,
             servingSizeG: dto.serving_size_g,
-            caloriesPerServing: dto.calories_per_serving,
+            caloriesPerServing: dto.calories,
             proteinG: dto.protein_g,
             carbsG: dto.carbs_g,
             fatG: dto.fat_g,
             fiberG: dto.fiber_g,
-            category: dto.category
+            // The backend has no food-category column; `category` is only
+            // populated for mock/manual data, so backend products get "".
+            category: ""
         )
     }
 

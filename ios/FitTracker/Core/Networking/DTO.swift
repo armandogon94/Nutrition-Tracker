@@ -129,22 +129,23 @@ struct NutritionGoalResponseDTO: Codable, Sendable {
 
 // MARK: - Products (Slice 3)
 
-/// Mirrors `app/schemas/product.py:ProductResponse`. Snake_case keys map
-/// directly to the Pydantic schema; we keep the shape flat (no nested
-/// "nutrition" object) because the backend already flattened macros for
-/// the iOS contract during Slice 9.
+/// Mirrors `app/schemas/product.py:ProductResponse`. Keys match the backend
+/// JSON exactly: the backend emits `calories` (per serving) and has no
+/// food-category column — so there is no `calories_per_serving` or
+/// `category` here. The backend's `source`, `image_url`, and `created_at`
+/// are intentionally omitted: the domain `Product` doesn't use them and
+/// Codable ignores extra keys.
 struct ProductDTO: Codable, Sendable, Hashable {
     let id: String
     let barcode: String?
     let name: String
     let brand: String?
     let serving_size_g: Double
-    let calories_per_serving: Double
+    let calories: Double
     let protein_g: Double
     let carbs_g: Double
     let fat_g: Double
     let fiber_g: Double
-    let category: String
 }
 
 struct ProductSearchResponse: Codable, Sendable {
