@@ -293,7 +293,14 @@ struct WorkoutProgramDTO: Codable, Sendable {
 /// `SessionCreate`. `program_id` / `program_day_id` are optional so an
 /// ad-hoc (program-less) session is representable; today's flow always
 /// supplies them from the chosen program day.
+///
+/// `id` is the client-supplied session id (Codex finding #1): we send our
+/// local SwiftData UUID so the backend persists the session under THAT id,
+/// making set-logging / completion to /sessions/{id}/... resolve to one
+/// consistent row. The backend treats a repeat POST with the same id as
+/// idempotent, so the offline-retry sweep can safely replay a start.
 struct SessionCreateRequest: Codable, Sendable {
+    let id: String
     let program_id: String?
     let program_day_id: String?
     let started_at: Date

@@ -5,6 +5,7 @@ import pytest
 
 from app.models.exercise import Exercise
 from app.models.workout import WorkoutProgram
+from tests.conftest import TEST_USER_B_ID, TEST_USER_ID
 
 
 async def _create_exercise(db_session, name_suffix=""):
@@ -94,6 +95,94 @@ async def test_start_session(auth_client):
     assert "id" in data
     assert data["completed_at"] is None
     assert data["sets"] == []
+
+
+async def test_start_session_with_client_supplied_id(auth_client):
+    """Client-supplied id (Codex finding #1): when iOS sends its local UUID as
+    `id`, the backend must persist the session under THAT id so subsequent
+    set-logging / completion calls to /sessions/{id}/... resolve."""
+    client_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    response = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"id": client_id, "started_at": now},
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["id"] == client_id
+
+    # The session must be addressable by the client id end-to-end.
+    follow = await auth_client.get(f"/api/v1/workouts/sessions/{client_id}")
+    assert follow.status_code == 200
+    assert follow.json()["id"] == client_id
+
+
+async def test_start_session_idempotent_returns_existing(auth_client, db_session):
+    """Posting the SAME client id twice must be idempotent: return the existing
+    session (200/201) rather than erroring on a PK conflict or duplicating it.
+    This is what makes the offline-retry sweep safe to replay a start."""
+    exercise = await _create_exercise(db_session, "idempotent")
+    client_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    first = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"id": client_id, "started_at": now},
+    )
+    assert first.status_code == 201
+    assert first.json()["id"] == client_id
+
+    # A logged set against the (only) session.
+    await auth_client.post(
+        f"/api/v1/workouts/sessions/{client_id}/sets",
+        json={"exercise_id": str(exercise.id), "set_number": 1, "reps": 5, "weight_kg": 60.0},
+    )
+
+    # Replaying the start must NOT raise and must NOT create a second session.
+    second = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"id": client_id, "started_at": now},
+    )
+    assert second.status_code in (200, 201)
+    assert second.json()["id"] == client_id
+
+    # Exactly one session exists for the user, and the previously logged set
+    # is still attached (no clobber/duplicate).
+    history = await auth_client.get("/api/v1/workouts/history")
+    matches = [e for e in history.json() if e["id"] == client_id]
+    assert len(matches) == 1
+    assert matches[0]["total_sets"] == 1
+
+
+async def test_start_session_client_id_not_leaked_across_users(
+    auth_client, auth_client_b, db_session
+):
+    """Idempotency must be scoped to the caller. User B replaying user A's id
+    must NOT return (or hijack) user A's session — it creates B's own, or 404s
+    on read, but never leaks A's data."""
+    client_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+
+    # User A starts a session with this id.
+    a_resp = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"id": client_id, "started_at": now},
+    )
+    assert a_resp.status_code == 201
+    assert a_resp.json()["user_id"] == str(TEST_USER_ID)
+
+    # User B posts the SAME id. The response must belong to B, never to A.
+    b_resp = await auth_client_b.post(
+        "/api/v1/workouts/sessions",
+        json={"id": client_id, "started_at": now},
+    )
+    assert b_resp.status_code in (200, 201)
+    assert b_resp.json()["user_id"] == str(TEST_USER_B_ID)
+
+    # And B cannot read A's session by that id (A's row is still A's).
+    a_read = await auth_client.get(f"/api/v1/workouts/sessions/{client_id}")
+    assert a_read.status_code == 200
+    assert a_read.json()["user_id"] == str(TEST_USER_ID)
 
 
 async def test_get_session(auth_client):

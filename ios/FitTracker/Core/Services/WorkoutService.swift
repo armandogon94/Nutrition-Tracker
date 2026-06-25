@@ -82,10 +82,14 @@ final class WorkoutService: WorkoutLoggingServiceProtocol {
         context.insert(entity)
         try context.save()
 
-        // 2. Backend POST. The server mints its own id, but we keep the
-        //    local id as the stable on-device key (and HealthKit
-        //    idempotency key). A failure leaves pendingSync=true.
+        // 2. Backend POST. We send the local id as the client-supplied
+        //    session id so the server persists the row under it — making
+        //    logSet / completeSession (which address /sessions/{localId}/...)
+        //    resolve to the SAME session end-to-end (Codex finding #1). The
+        //    POST is idempotent server-side, so the offline-retry sweep can
+        //    replay it. A failure leaves pendingSync=true.
         let body = SessionCreateRequest(
+            id: id.uuidString,
             program_id: programId?.uuidString,
             program_day_id: programDayId?.uuidString,
             started_at: startedAt

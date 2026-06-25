@@ -84,7 +84,32 @@ async def create_program(
 async def start_session(
     data: SessionCreate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ) -> WorkoutSession:
-    session_obj = WorkoutSession(user_id=user_id, **data.model_dump())
+    # Client-supplied id path (Codex finding #1): the iOS client sends its local
+    # session UUID as `id` so later set-logging / completion calls to
+    # /sessions/{id}/... address the SAME row. This must be idempotent so the
+    # offline-retry sweep can safely replay a "start".
+    payload = data.model_dump()
+    client_id = payload.pop("id", None)
+
+    if client_id is not None:
+        # Idempotency is scoped to the caller. If THIS user already started a
+        # session with this id, return it unchanged — never duplicate, never
+        # clobber its sets. If the id happens to be owned by a different user
+        # (a UUID collision; astronomically unlikely in practice), we do NOT
+        # leak or hijack their row: fall through and let the server mint a
+        # fresh id for this caller instead.
+        existing = await db.execute(
+            select(WorkoutSession).where(WorkoutSession.id == client_id)
+        )
+        existing_session = existing.scalar_one_or_none()
+        if existing_session is not None:
+            if existing_session.user_id == user_id:
+                return existing_session
+            client_id = None  # collision with another user -> server-mint
+
+    session_obj = WorkoutSession(user_id=user_id, **payload)
+    if client_id is not None:
+        session_obj.id = client_id
     db.add(session_obj)
     await db.flush()
     await db.refresh(session_obj)

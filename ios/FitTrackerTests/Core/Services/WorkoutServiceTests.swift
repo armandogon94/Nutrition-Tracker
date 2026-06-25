@@ -144,6 +144,100 @@ struct WorkoutServiceTests {
         #expect(rows.first?.pendingSync == true, "offline session must survive locally for later sync")
     }
 
+    @Test("startSession sends its local id as the client-supplied session id")
+    func startSession_sendsClientSuppliedId() async throws {
+        let (sut, _) = try makeSUT()
+
+        nonisolated(unsafe) var capturedBody: [String: Any]?
+        // Server intentionally echoes a DIFFERENT id to prove the client no
+        // longer depends on the server minting the id — the local id is the
+        // one that must travel in the request and remain authoritative.
+        let json = sessionResponseJSON(id: UUID(), startedAtISO: "2026-06-04T10:00:00Z")
+        MockURLProtocol.handler = { req in
+            capturedBody = req.workoutBodyJSON()
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 201,
+                                       httpVersion: "1.1", headerFields: nil)!
+            return (resp, Data(json.utf8))
+        }
+
+        let session = try await sut.startSession(
+            programName: "PPL", dayName: "Push",
+            programId: programId, programDayId: dayId, userId: userId
+        )
+
+        // The POST body must carry the session's local id so the backend
+        // persists the row under it (Codex finding #1).
+        let sentId = try #require(capturedBody?["id"] as? String)
+        #expect(sentId == session.id.uuidString)
+    }
+
+    @Test("start -> logSet -> complete all address one consistent session id")
+    func sessionLifecycle_usesSingleIdEndToEnd() async throws {
+        let (sut, _) = try makeSUT()
+
+        nonisolated(unsafe) var startBodyId: String?
+        nonisolated(unsafe) var setPath: String?
+        nonisolated(unsafe) var completePath: String?
+
+        // Precompute response bodies on the MainActor BEFORE the @Sendable
+        // handler closure (the JSON builders are MainActor-isolated). The
+        // server echoes a DIFFERENT id on purpose so the test proves the
+        // lifecycle keys off the LOCAL id, never the server echo.
+        let serverEchoId = UUID()
+        let startBody = sessionResponseJSON(id: serverEchoId, startedAtISO: "2026-06-04T10:00:00Z")
+        let setBody = setResponseJSON(reps: 8, weight: 80, isPR: true)
+        let completeBody = sessionResponseJSON(
+            id: serverEchoId, startedAtISO: "2026-06-04T10:00:00Z",
+            completedAtISO: "2026-06-04T10:45:00Z", durationMinutes: 45
+        )
+        MockURLProtocol.handler = { req in
+            let path = req.url?.path ?? ""
+            let method = req.httpMethod ?? ""
+            if path.hasSuffix("/workouts/sessions"), method == "POST" {
+                startBodyId = req.workoutBodyJSON()?["id"] as? String
+                let resp = HTTPURLResponse(url: req.url!, statusCode: 201, httpVersion: "1.1", headerFields: nil)!
+                return (resp, Data(startBody.utf8))
+            }
+            if path.contains("/sets"), method == "POST" {
+                setPath = path
+                let resp = HTTPURLResponse(url: req.url!, statusCode: 201, httpVersion: "1.1", headerFields: nil)!
+                return (resp, Data(setBody.utf8))
+            }
+            if path.hasSuffix("/complete"), method == "PATCH" {
+                completePath = path
+                let resp = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: "1.1", headerFields: nil)!
+                return (resp, Data(completeBody.utf8))
+            }
+            throw URLError(.unsupportedURL)
+        }
+
+        // start
+        let session = try await sut.startSession(
+            programName: "PPL", dayName: "Push",
+            programId: programId, programDayId: dayId, userId: userId
+        )
+        let localId = session.id.uuidString
+
+        // logSet against the SAME id the start returned.
+        _ = try await sut.logSet(
+            sessionId: session.id, exerciseId: benchId,
+            exerciseName: "Press de banca", setNumber: 1,
+            weightKg: 80, reps: 8, userId: userId
+        )
+
+        // complete the SAME id.
+        _ = try await sut.completeSession(sessionId: session.id)
+
+        // 1. The start body carried the local id.
+        #expect(startBodyId == localId)
+        // 2. The set + complete requests both targeted that same id —
+        //    NOT the server-echoed id — so the whole lifecycle is one row.
+        #expect(setPath?.contains(localId) == true)
+        #expect(completePath?.contains(localId) == true)
+        #expect(setPath?.contains(serverEchoId.uuidString) == false)
+        #expect(completePath?.contains(serverEchoId.uuidString) == false)
+    }
+
     // MARK: - logSet + PR detection
 
     @Test("logSet flags a PR and creates a record when there is no prior PR")
@@ -392,5 +486,62 @@ struct WorkoutServiceTests {
           "completed_at": "2026-06-04T10:05:00Z"
         }
         """
+    }
+
+    /// Builds a WorkoutSessionDTO JSON body. `id` is what the *server* echoes
+    /// back — deliberately decoupled from the client's local id in these tests
+    /// so we can prove the lifecycle keys off the local id, not the echo.
+    private func sessionResponseJSON(
+        id: UUID,
+        startedAtISO: String,
+        completedAtISO: String? = nil,
+        durationMinutes: Int? = nil
+    ) -> String {
+        let completed = completedAtISO.map { "\"\($0)\"" } ?? "null"
+        let duration = durationMinutes.map(String.init) ?? "null"
+        return """
+        {
+          "id": "\(id.uuidString)",
+          "user_id": "\(userId.uuidString)",
+          "program_id": "\(programId.uuidString)",
+          "program_day_id": "\(dayId.uuidString)",
+          "started_at": "\(startedAtISO)",
+          "completed_at": \(completed),
+          "duration_minutes": \(duration),
+          "notes": null,
+          "sets": []
+        }
+        """
+    }
+}
+
+// MARK: - URLRequest body extraction (workout tests)
+
+private extension URLRequest {
+    /// Decodes the request body as a JSON object regardless of whether it was
+    /// set as `httpBody` or streamed via `httpBodyStream` (URLProtocol mocking
+    /// flips between the two depending on size).
+    func workoutBodyJSON() -> [String: Any]? {
+        let raw: Data?
+        if let body = httpBody {
+            raw = body
+        } else if let stream = httpBodyStream {
+            var data = Data()
+            let bufferSize = 4096
+            let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+            defer { buffer.deallocate() }
+            stream.open()
+            defer { stream.close() }
+            while stream.hasBytesAvailable {
+                let read = stream.read(buffer, maxLength: bufferSize)
+                if read > 0 { data.append(buffer, count: read) }
+                if read <= 0 { break }
+            }
+            raw = data
+        } else {
+            raw = nil
+        }
+        guard let raw else { return nil }
+        return (try? JSONSerialization.jsonObject(with: raw)) as? [String: Any]
     }
 }

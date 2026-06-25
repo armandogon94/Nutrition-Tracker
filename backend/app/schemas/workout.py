@@ -64,6 +64,12 @@ class WorkoutProgramCreate(BaseModel):
 
 
 class SessionCreate(BaseModel):
+    # Optional client-supplied primary key. The iOS client mints a local UUID
+    # the instant a workout starts (its on-device + HealthKit idempotency key)
+    # and sends it here so set-logging / completion to /sessions/{id}/... resolve
+    # to the SAME row server-side. When omitted, the server mints the id.
+    # See Codex review finding #1 (workout local-vs-server UUID mismatch).
+    id: uuid.UUID | None = None
     program_id: uuid.UUID | None = None
     program_day_id: uuid.UUID | None = None
     started_at: datetime
