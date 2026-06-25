@@ -1,15 +1,55 @@
 //
 //  SettingsView.swift
 //  Slice 0.5 mock — theme switcher (live), language, account actions.
-//  Real account-deletion flow lands in Slice 11.
+//  Slice 11 / Codex review #17/#14: real account-deletion flow (confirmation
+//  dialog → DELETE /api/v1/users/me → signOut), with errors surfaced.
 //
 
 import SwiftUI
+
+/// Drives the destructive account-deletion flow. Network + signOut are passed
+/// in as closures so SettingsView can supply the real
+/// `APIClient(...).delete(...)` + `services.auth.signOut()` while the branching
+/// (success / 404-graceful / failure) stays unit-testable. See
+/// AccountDeletionModelTests.
+@MainActor
+@Observable
+final class AccountDeletionModel {
+    var isDeleting = false
+    var errorMessage: String?
+
+    /// Calls `delete`, then signs out on success. A 404 means the backend
+    /// route isn't deployed yet (a parallel slice adds it) — we still sign the
+    /// user out locally rather than trapping them. Any other failure is
+    /// surfaced and the session is preserved.
+    func performDeletion(
+        delete: () async throws -> Void,
+        signOut: () async -> Void
+    ) async {
+        guard !isDeleting else { return }
+        isDeleting = true
+        errorMessage = nil
+        defer { isDeleting = false }
+
+        do {
+            try await delete()
+            await signOut()
+        } catch APIError.notFound {
+            // Route not live yet — degrade gracefully to a local sign-out.
+            await signOut()
+        } catch {
+            errorMessage = String(localized: "settings.deleteAccount.error")
+        }
+    }
+}
 
 struct SettingsView: View {
     @Environment(\.appTheme) private var theme
     @Environment(MockServiceContainer.self) private var services
     @Environment(ThemeStore.self) private var themeStore
+
+    @State private var deletion = AccountDeletionModel()
+    @State private var showDeleteConfirmation = false
 
     var body: some View {
         ZStack {
@@ -28,6 +68,48 @@ struct SettingsView: View {
         }
         .navigationTitle("Ajustes")
         .navigationBarTitleDisplayMode(.inline)
+        .confirmationDialog(
+            Text("settings.deleteAccount.confirm.title"),
+            isPresented: $showDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(role: .destructive) {
+                Task { await deleteAccount() }
+            } label: {
+                Text("settings.deleteAccount.confirm.action")
+            }
+            Button(role: .cancel) { } label: {
+                Text("common_cancel")
+            }
+        } message: {
+            Text("settings.deleteAccount.confirm.message")
+        }
+        .alert(
+            Text("settings.deleteAccount.error"),
+            isPresented: Binding(
+                get: { deletion.errorMessage != nil },
+                set: { if !$0 { deletion.errorMessage = nil } }
+            )
+        ) {
+            Button(role: .cancel) { deletion.errorMessage = nil } label: {
+                Text("common_close")
+            }
+        }
+    }
+
+    /// Performs the real deletion: an authenticated DELETE to the backend, then
+    /// a sign-out. Uses existing methods only (per slice ownership rules): an
+    /// inline authenticated `APIClient` and `services.auth.signOut()`.
+    private func deleteAccount() async {
+        await deletion.performDeletion(
+            delete: {
+                let api = APIClient(tokenProvider: KeychainTokenStore.shared)
+                try await api.delete("/api/v1/users/me")
+            },
+            signOut: {
+                await services.auth.signOut()
+            }
+        )
     }
 
     /// Slice 5.5: entry points into the real ProfileView + GoalsView. These
@@ -150,22 +232,23 @@ struct SettingsView: View {
                     .foregroundStyle(theme.textPrimary)
                 }
                 Divider().opacity(0.2)
-                Button { } label: {
+                Button {
+                    showDeleteConfirmation = true
+                } label: {
                     HStack {
                         Image(systemName: "trash.fill")
-                        Text("Eliminar cuenta")
+                        Text("settings.deleteAccount.button")
                         Spacer()
+                        if deletion.isDeleting {
+                            ProgressView()
+                        }
                     }
                     .padding(14)
                     .foregroundStyle(theme.negative)
                 }
+                .disabled(deletion.isDeleting)
             }
             .themedCard()
-
-            Text("La eliminación de cuenta llega completa en Slice 11.")
-                .font(theme.font.caption)
-                .foregroundStyle(theme.textTertiary)
-                .padding(.horizontal, 4)
         }
     }
 

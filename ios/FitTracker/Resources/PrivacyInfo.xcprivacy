@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <!--
-      Slice 0 skeleton. Populated progressively:
-        Slice  2  — HealthKit read (bodyweight, active energy)
-        Slice  3  — HealthKit write (dietary), Claude Vision photo upload
-        Slice  7  — HealthKit workout write, notifications
-        Slice 11  — final pass: all required-reason APIs enumerated,
-                    all collected data types declared.
-      See SPEC.md §15 and plans/slice-11-testflight.md Task 11.3.
+      Privacy manifest (Slice 11 / Codex review #17/#14 — TestFlight gate).
+      Declares every data type FitTracker collects and every Apple
+      "required-reason" API it calls. Kept in sync with the data flows:
+        - HealthKit dietary + workout writes, bodyweight read (Health/Fitness)
+        - Auth (email + server-minted user id), display name (account)
+        - Meal photos uploaded for Claude Vision recognition (Photos)
+      Nothing here is used for tracking and we set no tracking domains.
     -->
 
     <!-- We do not track users across apps or websites -->
@@ -20,12 +20,115 @@
     <key>NSPrivacyTrackingDomains</key>
     <array/>
 
-    <!-- Collected data types. Populated per slice as collection points are added. -->
+    <!--
+      Collected data types. For each: the Apple-defined type, whether it is
+      linked to the user's identity (true — everything is tied to the account),
+      whether it is used for tracking (false), and the collection purposes
+      (App Functionality only).
+    -->
     <key>NSPrivacyCollectedDataTypes</key>
-    <array/>
+    <array>
+        <!-- HealthKit dietary/workout writes + bodyweight read, plus the
+             physical attributes (weight, height, age, sex) used for TDEE. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeHealth</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeFitness</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
 
-    <!-- Apple-required "reasons" for certain APIs. Populated in Slice 11. -->
+        <!-- Account: email address used to sign in / register. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeEmailAddress</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Account: display name / Apple full name. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeName</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Account identifier: the server-minted user id / Apple user
+             identifier persisted to keep the session and scope user data. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeUserID</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+
+        <!-- Meal photos captured / chosen and uploaded for food
+             recognition (camera + photo library). -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypePhotosorVideos</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <true/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+            </array>
+        </dict>
+    </array>
+
+    <!--
+      Apple-required "reason" declarations for certain APIs. FitTracker uses
+      UserDefaults to persist the offline mutation queue; reason CA92.1 =
+      "access info from the app itself / app group" (no cross-app use).
+    -->
     <key>NSPrivacyAccessedAPITypes</key>
-    <array/>
+    <array>
+        <dict>
+            <key>NSPrivacyAccessedAPIType</key>
+            <string>NSPrivacyAccessedAPICategoryUserDefaults</string>
+            <key>NSPrivacyAccessedAPITypeReasons</key>
+            <array>
+                <string>CA92.1</string>
+            </array>
+        </dict>
+    </array>
 </dict>
 </plist>

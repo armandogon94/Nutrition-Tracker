@@ -5,13 +5,15 @@
 //  first meal-log (NOT at app launch) per Apple HIG and SPEC §15.
 //
 //  PHI compliance:
-//    - Authorization is requested with the minimum scope: only the
-//      dietary types we actually write. Read scopes (bodyweight,
-//      active energy) are owned by Slices 5/6 and added later via
-//      additive extensions.
-//    - Idempotency: every sample carries `HKMetadataKeyExternalUUID =
-//      mealItem.id.uuidString`. Re-calling writeMealEntry for the same
-//      MealItem is a no-op on the second pass.
+//    - Authorization is requested with the minimum scope, tracked PER SCOPE
+//      (dietary write, workout write, bodyMass read). Requesting one scope
+//      never marks another as granted, so e.g. a workout write can't
+//      suppress the dietary authorization prompt (Codex review #14/#13).
+//    - Idempotency (made real): every sample/workout carries
+//      `HKMetadataKeyExternalUUID = <id>.uuidString`. Before saving we run an
+//      ExternalUUID-predicated query and SKIP the write when a matching
+//      object already exists, so re-logging the same MealItem / re-finishing
+//      the same WorkoutSession does not create duplicate Health rows.
 //    - Failure modes: a denied authorization, an unavailable Health
 //      data store, or a write error all surface as
 //      `HealthKitError.unauthorized` / `.unavailable` / `.writeFailed`
@@ -21,10 +23,15 @@
 //  Testing strategy:
 //    The HKHealthStore type is impossible to mock directly (UI permission
 //    prompts and an opaque store). We extract the pure pieces — sample
-//    construction and quantity conversion — into static helpers that
-//    take simple inputs. HealthKitServiceTests asserts those helpers
-//    produce the right HKQuantitySample values. The thin glue around
-//    `requestAuthorization` and `save(_:)` is verified manually.
+//    construction and quantity conversion — into static helpers, AND we
+//    expose closure seams for the three impure operations:
+//      - `authorizationRequester` (wraps store.requestAuthorization)
+//      - `existingExternalUUIDFetcher` (wraps the ExternalUUID query)
+//      - `sampleSaver` / `workoutSaver` (wrap store.save / builder.finish)
+//    Production wires these to the real store; tests inject fakes to verify
+//    idempotency (skip on duplicate) and per-scope authorization without a
+//    permission prompt. The remaining HKWorkoutBuilder glue is verified on a
+//    real device per the manual QA checklist.
 //
 
 import Foundation
@@ -52,7 +59,18 @@ final class HealthKitService {
     static let shared = HealthKitService()
 
     private let store: HKHealthStore?
-    private(set) var isAuthorized: Bool = false
+
+    // MARK: Per-scope authorization (Codex review #14/#13)
+    //
+    // A single shared flag let one authorization path (e.g. workout) mark the
+    // service "authorized" and suppress another scope's prompt (e.g. dietary).
+    // We now track each scope independently. These only record that we have
+    // ASKED for a scope this session (HealthKit deliberately hides the
+    // grant/deny answer for reads, and treats a re-ask as a no-op for writes),
+    // so they exist to avoid re-prompting, not to gate the write.
+    private(set) var isDietaryWriteAuthorized: Bool = false
+    private(set) var isWorkoutWriteAuthorized: Bool = false
+    private(set) var isBodyMassReadAuthorized: Bool = false
 
     /// Slice 2.5: seam for the bodyweight READ query. HKHealthStore /
     /// HKSampleQuery can't be mocked directly, so tests inject a closure
@@ -62,10 +80,39 @@ final class HealthKitService {
     typealias BodyMassFetcher = @Sendable (_ sampleType: HKQuantityType) async throws -> [HKQuantitySample]
     private let bodyMassFetcher: BodyMassFetcher?
 
+    /// Seam for `store.requestAuthorization(toShare:read:)`. Tests inject a
+    /// recorder; production calls the real store.
+    typealias AuthorizationRequester = @Sendable (_ share: Set<HKSampleType>, _ read: Set<HKObjectType>) async throws -> Void
+    private let authorizationRequester: AuthorizationRequester?
+
+    /// Seam answering "does a sample/workout with this ExternalUUID already
+    /// exist?" for the given sample types. Production runs an
+    /// ExternalUUID-predicated `HKSampleQuery`; tests inject a fake store.
+    typealias ExistingExternalUUIDFetcher = @Sendable (_ externalUUID: String, _ types: Set<HKSampleType>) async throws -> Bool
+    private let existingExternalUUIDFetcher: ExistingExternalUUIDFetcher?
+
+    /// Seam for persisting dietary samples (`store.save(_:)`). Tests record
+    /// what was saved to assert idempotency.
+    typealias SampleSaver = @Sendable (_ samples: [HKSample]) async throws -> Void
+    private let sampleSaver: SampleSaver?
+
+    /// Seam for persisting a workout. Production builds + finishes an
+    /// `HKWorkoutBuilder`; tests record the session id.
+    typealias WorkoutSaver = @Sendable (_ session: WorkoutSession) async throws -> Void
+    private let workoutSaver: WorkoutSaver?
+
     init(store: HKHealthStore? = HKHealthStore.isHealthDataAvailable() ? HKHealthStore() : nil,
-         bodyMassFetcher: BodyMassFetcher? = nil) {
+         bodyMassFetcher: BodyMassFetcher? = nil,
+         authorizationRequester: AuthorizationRequester? = nil,
+         existingExternalUUIDFetcher: ExistingExternalUUIDFetcher? = nil,
+         sampleSaver: SampleSaver? = nil,
+         workoutSaver: WorkoutSaver? = nil) {
         self.store = store
         self.bodyMassFetcher = bodyMassFetcher
+        self.authorizationRequester = authorizationRequester
+        self.existingExternalUUIDFetcher = existingExternalUUIDFetcher
+        self.sampleSaver = sampleSaver
+        self.workoutSaver = workoutSaver
     }
 
     /// The set of types we WRITE. Kept narrow; reads are added later.
@@ -100,12 +147,13 @@ final class HealthKitService {
 
     /// Request write permission for our nutrition types. Caller is
     /// MealService (or wherever the first log happens). Re-calling is
-    /// safe — HealthKit no-ops if the user has already decided.
+    /// safe — HealthKit no-ops if the user has already decided. Tracks only
+    /// the dietary scope so a workout/read request can't suppress this prompt.
     func requestAuthorizationIfNeeded() async throws {
-        guard let store else { throw HealthKitError.unavailable }
+        guard store != nil else { throw HealthKitError.unavailable }
         do {
-            try await store.requestAuthorization(toShare: Self.writeTypes, read: [])
-            isAuthorized = true
+            try await requestAuthorization(share: Self.writeTypes, read: [])
+            isDietaryWriteAuthorized = true
         } catch {
             throw HealthKitError.unauthorized
         }
@@ -118,29 +166,100 @@ final class HealthKitService {
     /// returned status — we just attempt the query and treat "no samples" the
     /// same as "not authorized": both yield nil and fall back to the profile.
     func requestBodyMassReadAuthorizationIfNeeded() async throws {
-        guard let store else { throw HealthKitError.unavailable }
+        guard store != nil else { throw HealthKitError.unavailable }
         do {
-            try await store.requestAuthorization(toShare: [], read: Self.readTypes)
+            try await requestAuthorization(share: [], read: Self.readTypes)
+            isBodyMassReadAuthorized = true
         } catch {
             throw HealthKitError.unauthorized
         }
     }
 
-    /// Write the given MealItem as a correlation grouping the macro
-    /// samples. We do NOT inspect existing samples first — HealthKit
-    /// uses the ExternalUUID to dedupe within its own store, and our
-    /// tests verify the metadata is set.
+    /// Single funnel for authorization so production and tests share one path.
+    /// Uses the injected `authorizationRequester` when present (tests),
+    /// otherwise calls the real store.
+    private func requestAuthorization(share: Set<HKSampleType>, read: Set<HKObjectType>) async throws {
+        if let authorizationRequester {
+            try await authorizationRequester(share, read)
+        } else if let store {
+            try await store.requestAuthorization(toShare: share, read: read)
+        } else {
+            throw HealthKitError.unavailable
+        }
+    }
+
+    /// Write the given MealItem's macro samples. Idempotency is REAL: before
+    /// saving we query HealthKit for any existing sample carrying this
+    /// MealItem's ExternalUUID and skip the write when one is found, so
+    /// re-logging the same item never duplicates Health rows.
     func writeMealEntry(_ item: MealItem, mealDate: Date = .now) async throws {
-        guard let store else { throw HealthKitError.unavailable }
-        if !isAuthorized {
+        guard store != nil else { throw HealthKitError.unavailable }
+        if !isDietaryWriteAuthorized {
             try await requestAuthorizationIfNeeded()
         }
         let samples = Self.makeSamples(for: item, mealDate: mealDate)
         guard !samples.isEmpty else { return }
+
+        // Idempotency guard: skip if a sample with this ExternalUUID exists.
+        if try await externalUUIDExists(item.id.uuidString, types: Self.writeTypes) {
+            return
+        }
+
         do {
-            try await store.save(samples)
+            try await save(samples)
         } catch {
             throw HealthKitError.writeFailed(error.localizedDescription)
+        }
+    }
+
+    // MARK: - Idempotency + save funnels
+
+    /// Returns true when HealthKit already holds a sample/workout carrying the
+    /// given ExternalUUID. Uses the injected fetcher in tests; production runs
+    /// a real `HKSampleQuery` per type with an ExternalUUID predicate.
+    private func externalUUIDExists(_ externalUUID: String, types: Set<HKSampleType>) async throws -> Bool {
+        if let existingExternalUUIDFetcher {
+            return try await existingExternalUUIDFetcher(externalUUID, types)
+        }
+        guard let store else { return false }
+        let predicate = HKQuery.predicateForObjects(
+            withMetadataKey: HKMetadataKeyExternalUUID,
+            allowedValues: [externalUUID]
+        )
+        for type in types {
+            let found = try await Self.firstMatch(store: store, type: type, predicate: predicate)
+            if found { return true }
+        }
+        return false
+    }
+
+    /// Runs a `limit: 1` HKSampleQuery and reports whether anything matched.
+    private static func firstMatch(store: HKHealthStore, type: HKSampleType, predicate: NSPredicate) async throws -> Bool {
+        try await withCheckedThrowingContinuation { continuation in
+            let query = HKSampleQuery(
+                sampleType: type,
+                predicate: predicate,
+                limit: 1,
+                sortDescriptors: nil
+            ) { _, samples, error in
+                if let error {
+                    continuation.resume(throwing: HealthKitError.writeFailed(error.localizedDescription))
+                    return
+                }
+                continuation.resume(returning: !(samples ?? []).isEmpty)
+            }
+            store.execute(query)
+        }
+    }
+
+    /// Persist dietary samples via the injected saver (tests) or the store.
+    private func save(_ samples: [HKSample]) async throws {
+        if let sampleSaver {
+            try await sampleSaver(samples)
+        } else if let store {
+            try await store.save(samples)
+        } else {
+            throw HealthKitError.unavailable
         }
     }
 
@@ -274,43 +393,66 @@ extension HealthKitService {
     static var workoutShareTypes: Set<HKSampleType> { [HKObjectType.workoutType()] }
 
     /// Request authorization to write workouts. Idempotent at the system
-    /// level. Sets `isAuthorized` so subsequent dietary/workout writes skip
-    /// the re-prompt.
+    /// level. Tracks ONLY the workout scope so it can't suppress the dietary
+    /// or read prompts (Codex review #14/#13).
     func requestWorkoutAuthorizationIfNeeded() async throws {
-        guard let store else { throw HealthKitError.unavailable }
+        guard store != nil else { throw HealthKitError.unavailable }
+        if isWorkoutWriteAuthorized { return }
         do {
-            try await store.requestAuthorization(toShare: Self.workoutShareTypes, read: [])
-            isAuthorized = true
+            try await requestAuthorization(share: Self.workoutShareTypes, read: [])
+            isWorkoutWriteAuthorized = true
         } catch {
             throw HealthKitError.unauthorized
         }
     }
 
     /// Write a completed `WorkoutSession` to Apple Health as a
-    /// functional-strength-training workout. Idempotent via the session id.
-    /// A still-active session (no `completedAt`) is rejected.
+    /// functional-strength-training workout. Idempotency is REAL: before
+    /// building the workout we query for any existing workout carrying this
+    /// session's ExternalUUID and skip when one is found, so re-finishing the
+    /// same session never duplicates the Health entry. A still-active session
+    /// (no `completedAt`) is rejected.
     func writeWorkout(_ session: WorkoutSession) async throws {
-        guard let store else { throw HealthKitError.unavailable }
-        guard let end = session.completedAt else {
+        guard store != nil else { throw HealthKitError.unavailable }
+        guard session.completedAt != nil else {
             throw HealthKitError.writeFailed("session has no completedAt")
         }
 
         try await requestWorkoutAuthorizationIfNeeded()
 
-        let configuration = Self.workoutConfiguration()
-        let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration, device: .local())
+        // Idempotency guard: skip if a workout with this ExternalUUID exists.
+        if try await externalUUIDExists(session.id.uuidString, types: Self.workoutShareTypes) {
+            return
+        }
 
         do {
-            try await builder.beginCollection(at: session.startedAt)
-            // We don't have per-second energy samples for a strength session;
-            // the duration (start..end) is the meaningful signal. Attach the
-            // idempotency + provenance metadata.
-            try await builder.addMetadata(Self.workoutMetadata(for: session))
-            try await builder.endCollection(at: end)
-            _ = try await builder.finishWorkout()
+            try await saveWorkout(session)
+        } catch let error as HealthKitError {
+            throw error
         } catch {
             throw HealthKitError.writeFailed(error.localizedDescription)
         }
+    }
+
+    /// Persist a workout via the injected saver (tests) or the real
+    /// `HKWorkoutBuilder` flow (production).
+    private func saveWorkout(_ session: WorkoutSession) async throws {
+        if let workoutSaver {
+            try await workoutSaver(session)
+            return
+        }
+        guard let store, let end = session.completedAt else {
+            throw HealthKitError.unavailable
+        }
+        let configuration = Self.workoutConfiguration()
+        let builder = HKWorkoutBuilder(healthStore: store, configuration: configuration, device: .local())
+        try await builder.beginCollection(at: session.startedAt)
+        // We don't have per-second energy samples for a strength session;
+        // the duration (start..end) is the meaningful signal. Attach the
+        // idempotency + provenance metadata.
+        try await builder.addMetadata(Self.workoutMetadata(for: session))
+        try await builder.endCollection(at: end)
+        _ = try await builder.finishWorkout()
     }
 
     // MARK: - Pure helpers (testable)
