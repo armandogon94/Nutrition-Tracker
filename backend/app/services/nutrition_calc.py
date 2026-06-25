@@ -13,13 +13,19 @@ async def calculate_daily_nutrition(
     session: AsyncSession, user_id: UUID, nutrition_date: date
 ) -> DailyNutritionResponse:
     """Calculate daily macro totals from all meals."""
+    # Servings factor: when an item is logged by grams, scale macros by
+    # quantity_grams / serving_size_g; otherwise fall back to quantity_servings.
+    serving_factor = func.coalesce(
+        MealItem.quantity_grams / func.nullif(Product.serving_size_g, 0),
+        MealItem.quantity_servings,
+    )
     query = (
         select(
-            func.coalesce(func.sum(Product.calories * MealItem.quantity_servings), 0),
-            func.coalesce(func.sum(Product.protein_g * MealItem.quantity_servings), 0),
-            func.coalesce(func.sum(Product.carbs_g * MealItem.quantity_servings), 0),
-            func.coalesce(func.sum(Product.fat_g * MealItem.quantity_servings), 0),
-            func.coalesce(func.sum(Product.fiber_g * MealItem.quantity_servings), 0),
+            func.coalesce(func.sum(Product.calories * serving_factor), 0),
+            func.coalesce(func.sum(Product.protein_g * serving_factor), 0),
+            func.coalesce(func.sum(Product.carbs_g * serving_factor), 0),
+            func.coalesce(func.sum(Product.fat_g * serving_factor), 0),
+            func.coalesce(func.sum(Product.fiber_g * serving_factor), 0),
             func.count(func.distinct(Meal.id)),
         )
         .select_from(Meal)
