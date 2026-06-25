@@ -29,9 +29,13 @@ async def generate_shopping_list(
     session: AsyncSession, meal_plan_id: UUID, user_id: UUID
 ) -> ShoppingList:
     """Generate shopping list from meal plan by aggregating ingredients."""
-    # Verify meal plan exists
+    # Verify the meal plan exists AND belongs to the requesting user (no IDOR):
+    # never aggregate or generate a list from another user's plan.
     result = await session.execute(
-        select(MealPlan).where(MealPlan.id == meal_plan_id)
+        select(MealPlan).where(
+            MealPlan.id == meal_plan_id,
+            MealPlan.user_id == user_id,
+        )
     )
     meal_plan = result.scalar_one_or_none()
     if not meal_plan:

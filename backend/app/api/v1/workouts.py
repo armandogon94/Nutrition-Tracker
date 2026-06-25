@@ -48,8 +48,19 @@ async def list_programs(
 
 
 @router.get("/programs/{program_id}", response_model=WorkoutProgramResponse)
-async def get_program(program_id: UUID, db: AsyncSession = Depends(get_db)) -> WorkoutProgram:
-    result = await db.execute(select(WorkoutProgram).where(WorkoutProgram.id == program_id))
+async def get_program(
+    program_id: UUID,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
+) -> WorkoutProgram:
+    # Scope detail reads to presets or the caller's own programs (no IDOR):
+    # a private program owned by another user must 404, not leak.
+    result = await db.execute(
+        select(WorkoutProgram).where(
+            WorkoutProgram.id == program_id,
+            (WorkoutProgram.is_preset == True) | (WorkoutProgram.user_id == user_id),  # noqa: E712
+        )
+    )
     program = result.scalar_one_or_none()
     if not program:
         raise HTTPException(status_code=404, detail="Program not found")

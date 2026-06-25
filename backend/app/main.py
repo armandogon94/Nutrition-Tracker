@@ -14,8 +14,13 @@ from app.core.rate_limit import limiter
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    if settings.environment == "production" and settings.secret_key == "change-me-in-production":
-        raise RuntimeError("SECRET_KEY must be changed in production!")
+    if settings.environment == "production":
+        sk = settings.secret_key or ""
+        # Reject any placeholder (incl. the longer .env.example default) or weak key.
+        if len(sk) < 32 or sk.startswith("change-me"):
+            raise RuntimeError(
+                "SECRET_KEY must be set to a strong, non-placeholder value (>=32 chars) in production!"
+            )
     # Slice 9.9: shared httpx.AsyncClient lives for the lifetime of the app.
     await init_client()
     try:
