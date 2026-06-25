@@ -124,6 +124,12 @@ final class VisionService: VisionServiceProtocol, @unchecked Sendable {
         guard let http = resp as? HTTPURLResponse else {
             throw APIError.unknown("Non-HTTP response")
         }
+        // Maps the Wave 1 `/nutrition/recognize` contract. The endpoint never
+        // returns 404, so there is no `.notFound` branch: 401 -> unauthorized,
+        // 429 -> rateLimited (honoring Retry-After), and every other non-2xx
+        // (415 unsupported type, 413 too large, 400 empty, 503 unavailable,
+        // 502 upstream failure) -> `.server(status:detail:)` so the caller can
+        // branch on the code and surface the FastAPI `detail` message.
         switch http.statusCode {
         case 200..<300:
             let decoder = JSONDecoder()
@@ -131,8 +137,6 @@ final class VisionService: VisionServiceProtocol, @unchecked Sendable {
             return VisionRecognition(from: dto)
         case 401:
             throw APIError.unauthorized
-        case 404:
-            throw APIError.notFound
         case 429:
             let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }
             throw APIError.rateLimited(retryAfterSeconds: retry)

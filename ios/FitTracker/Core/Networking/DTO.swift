@@ -185,9 +185,17 @@ struct MealsListResponse: Codable, Sendable {
 /// today's meal of the given type. Backend creates the parent Meal row
 /// implicitly if one does not already exist for `meal_type` on
 /// `meal_date` for the authenticated user.
+///
+/// `meal_date` is a date-only string ("yyyy-MM-dd"), NOT a `Date`. The
+/// backend `MealLogRequest.meal_date` is a Pydantic `date`, which rejects a
+/// full ISO8601 datetime carrying a non-zero time component with a 422
+/// ("Datetimes provided to dates should have zero time"). APIClient's JSON
+/// encoder emits full datetimes for `Date`, so — exactly as
+/// `MealPlanCreateRequest.week_start_date` does — we pre-format the day on
+/// the caller side and ship a plain string.
 struct LogMealItemRequest: Codable, Sendable {
     let meal_type: String
-    let meal_date: Date
+    let meal_date: String        // "yyyy-MM-dd"
     let product_id: String?
     let product_name: String
     let brand: String?

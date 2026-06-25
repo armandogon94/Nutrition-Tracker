@@ -98,7 +98,7 @@ struct VisionServiceTests {
         #expect(result.calories == 247)
     }
 
-    @Test("404 surfaces APIError.notFound; 401 surfaces unauthorized")
+    @Test("401 surfaces unauthorized")
     func visionService_mapsErrorStatuses() async throws {
         let sut = makeSUT()
         MockURLProtocol.handler = { req in
@@ -109,6 +109,51 @@ struct VisionServiceTests {
         }
         await #expect(throws: APIError.unauthorized) {
             _ = try await sut.recognize(jpegData: Data([0xFF, 0xD8, 0xFF, 0xD9]))
+        }
+    }
+
+    @Test("429 surfaces rateLimited and parses Retry-After")
+    func visionService_mapsRateLimited() async throws {
+        let sut = makeSUT()
+        MockURLProtocol.handler = { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 429,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Retry-After": "42"])!
+            return (resp, Data(#"{"detail":"Too many requests"}"#.utf8))
+        }
+        await #expect(throws: APIError.rateLimited(retryAfterSeconds: 42)) {
+            _ = try await sut.recognize(jpegData: Data([0xFF, 0xD8, 0xFF, 0xD9]))
+        }
+    }
+
+    /// The Wave 1 `/nutrition/recognize` endpoint can return 415 (unsupported
+    /// type), 413 (too large), 400 (empty), 503 (vision unavailable) and 502
+    /// (upstream vision failure) in addition to 401/429. `APIError` has no
+    /// dedicated case for these, so the contract maps them to
+    /// `.server(status:detail:)` — which carries the HTTP status so a view
+    /// model can branch on it and show the right message. These tests pin that
+    /// real mapping (each status round-trips its code + detail).
+    @Test("415/413/400/503/502 surface APIError.server with the status + detail")
+    func visionService_mapsServerStatuses() async throws {
+        let sut = makeSUT()
+        let cases: [(Int, String)] = [
+            (415, #"{"detail":"Unsupported image type. Allowed: image/jpeg, image/png"}"#),
+            (413, #"{"detail":"Image exceeds the 10 MiB limit"}"#),
+            (400, #"{"detail":"Empty image upload"}"#),
+            (503, #"{"detail":"Food recognition is not available"}"#),
+            (502, #"{"detail":"Could not recognize the food in this image"}"#),
+        ]
+        for (status, bodyJSON) in cases {
+            nonisolated(unsafe) let captured = (status, bodyJSON)
+            MockURLProtocol.handler = { req in
+                let resp = HTTPURLResponse(url: req.url!, statusCode: captured.0,
+                                           httpVersion: "HTTP/1.1",
+                                           headerFields: ["Content-Type": "application/json"])!
+                return (resp, Data(captured.1.utf8))
+            }
+            await #expect(throws: APIError.server(status: status, detail: bodyJSON)) {
+                _ = try await sut.recognize(jpegData: Data([0xFF, 0xD8, 0xFF, 0xD9]))
+            }
         }
     }
 
