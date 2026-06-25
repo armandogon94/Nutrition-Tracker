@@ -228,4 +228,9 @@ protocol HistoryServiceProtocol: AnyObject, Sendable {
     func prs() async throws -> [ExercisePR]
     /// Per-session best-set progression for one exercise, oldest first.
     func exerciseProgression(exerciseId: UUID) async throws -> [ProgressionPoint]
+    /// Map of exerciseId -> display name from the exercise catalog. Views use
+    /// it to label sessions/sets/CSV by name. The real service reads the
+    /// SwiftData `ExerciseEntity` catalog (so real, non-mock exercises
+    /// resolve); the mock returns the seeded `MockData.exercises`.
+    func exerciseNameLookup() async throws -> [UUID: String]
 }

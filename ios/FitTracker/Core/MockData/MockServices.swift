@@ -244,6 +244,12 @@ final class MockHistoryService: HistoryServiceProtocol, @unchecked Sendable {
         }
         .sorted { $0.date < $1.date }
     }
+
+    /// Names from the seeded mock catalog (no SwiftData store in the mock).
+    func exerciseNameLookup() async throws -> [UUID: String] {
+        Dictionary(MockData.exercises.map { ($0.id, $0.name) },
+                   uniquingKeysWith: { first, _ in first })
+    }
 }
 
 // MARK: - Service container (DI)

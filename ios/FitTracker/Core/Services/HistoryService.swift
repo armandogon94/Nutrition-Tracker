@@ -329,6 +329,14 @@ final class HistoryService: HistoryServiceProtocol, @unchecked Sendable {
     }
 
     /// Map exerciseId → display name from the cached exercise catalog.
+    /// Public surface (protocol) so views label sessions/sets/CSV from the
+    /// real SwiftData catalog instead of `MockData`.
+    @MainActor
+    func exerciseNameLookup() async throws -> [UUID: String] {
+        try exerciseNameLookup(ModelContext(container))
+    }
+
+    /// Map exerciseId → display name from the cached exercise catalog.
     @MainActor
     private func exerciseNameLookup(_ ctx: ModelContext) throws -> [UUID: String] {
         let rows = try ctx.fetch(FetchDescriptor<ExerciseEntity>())

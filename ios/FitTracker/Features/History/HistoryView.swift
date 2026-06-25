@@ -167,10 +167,10 @@ struct HistoryView: View {
         muscleVolume = (try? await mv) ?? []
         prs = (try? await p) ?? []
 
-        // Resolve exercise names from the PR list + any exercise the sessions touch.
-        var names: [UUID: String] = [:]
-        for pr in prs { names[pr.exerciseId] = pr.exerciseName }
-        for ex in MockData.exercises where names[ex.id] == nil { names[ex.id] = ex.name }
+        // Resolve exercise names from the real SwiftData catalog, filling any
+        // gaps from the PR list (Slice 8 B2: previously fell back to MockData).
+        var names = (try? await services.history.exerciseNameLookup()) ?? [:]
+        for pr in prs where names[pr.exerciseId] == nil { names[pr.exerciseId] = pr.exerciseName }
         exerciseNames = names
 
         // Pre-build the CSV so ShareLink has a ready file URL.
