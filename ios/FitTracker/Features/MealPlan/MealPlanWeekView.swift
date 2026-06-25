@@ -144,7 +144,9 @@ struct MealPlanWeekView: View {
     private func shoppingBar(_ store: MealPlanStore) -> some View {
         Button {
             Task {
-                let items = await store.generateShoppingList()
+                guard let items = await store.generateShoppingList() else {
+                    return  // generation failed — stay on the planner; store.errorMessage is set
+                }
                 pendingShoppingItems = items
                 navigateToShopping = true
             }
