@@ -29,3 +29,23 @@ class NutritionGoalResponse(BaseModel):
     daily_fat_g: int
 
     model_config = {"from_attributes": True}
+
+
+class FoodRecognitionResponse(BaseModel):
+    """Response for ``POST /api/v1/nutrition/recognize``.
+
+    Mirrors the iOS ``VisionRecognitionResponse`` DTO exactly (same field
+    names / optionality) so ``VisionService.recognize`` decodes it directly:
+    ``{food, grams, confidence, calories?, protein_g?, carbs_g?, fat_g?}``.
+    ``confidence`` is a free-form string ("high"/"medium"/"low") to stay loose
+    with model output. Macros are per the estimated ``grams`` portion and may be
+    null when the model declines to estimate them.
+    """
+
+    food: str
+    grams: float
+    confidence: str
+    calories: float | None = None
+    protein_g: float | None = None
+    carbs_g: float | None = None
+    fat_g: float | None = None

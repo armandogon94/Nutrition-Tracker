@@ -9,9 +9,12 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.rate_limit import limiter
 from app.core.security import (
+    RefreshTokenReuseError,
     create_access_token,
     create_refresh_token,
+    find_refresh_token_any_state,
     hash_password,
+    revoke_user_refresh_tokens,
     rotate_refresh_token,
     verify_password,
     verify_refresh_token,
@@ -230,6 +233,23 @@ async def sign_in_with_apple(
     )
 
 
+async def _burn_family_and_401(db: AsyncSession, user_id) -> None:
+    """Revoke every active refresh token for ``user_id``, COMMIT, then 401.
+
+    The commit is essential: this is called on a reuse/race path that ends in an
+    ``HTTPException``, and ``get_db`` rolls the session back when the request
+    raises. Without an explicit commit the family-wide revocation would be
+    discarded and the theft response would be a no-op. This function never
+    returns — it always raises ``HTTPException(401)``.
+    """
+    await revoke_user_refresh_tokens(db, user_id)
+    await db.commit()
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired refresh token",
+    )
+
+
 @router.post("/refresh", response_model=RefreshResponse)
 @limiter.limit("10/minute")
 async def refresh(
@@ -239,11 +259,24 @@ async def refresh(
 ) -> RefreshResponse:
     """Exchange a valid refresh token for a fresh access + refresh pair.
 
-    Rotation: the presented refresh row is revoked and a new one is issued.
-    Replaying the original refresh token after this call returns 401.
+    Rotation is atomic and theft-aware:
+
+    - The presented row is claimed with a conditional ``UPDATE ... WHERE
+      revoked_at IS NULL`` and a fresh token is minted in the same transaction.
+    - Replaying an *already-revoked* token (e.g. one that was rotated earlier or
+      a token two clients raced to spend) is treated as a compromise of the
+      whole token family: every active refresh token for that user is revoked
+      and the call returns 401. The legitimate holder is forced to re-login,
+      which is the correct response to a detected reuse.
     """
+    # First try the active-only lookup (fast path for a normal refresh).
     row = await verify_refresh_token(db, data.refresh_token)
     if row is None:
+        # Distinguish a never-issued token from a known-but-revoked one. A
+        # revoked token being presented again is reuse → revoke the family.
+        stale = await find_refresh_token_any_state(db, data.refresh_token)
+        if stale is not None and stale.revoked_at is not None:
+            await _burn_family_and_401(db, stale.user_id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
@@ -256,7 +289,14 @@ async def refresh(
             detail="Invalid refresh token",
         )
 
-    new_plain, _ = await rotate_refresh_token(db, row)
+    try:
+        new_plain, _ = await rotate_refresh_token(db, row)
+    except RefreshTokenReuseError as exc:
+        # Lost the rotation race against a concurrent /refresh (or the token was
+        # revoked in between). Both presentations cannot be legitimate, so burn
+        # the whole family and make the user re-authenticate.
+        await _burn_family_and_401(db, exc.user_id)
+
     access_token, expires_in = _access_token_for(user)
     return RefreshResponse(
         access_token=access_token,
@@ -288,8 +328,6 @@ async def logout(
             row.revoked_at = datetime.now(timezone.utc)
             await db.flush()
     else:
-        from app.core.security import revoke_user_refresh_tokens
-
         await revoke_user_refresh_tokens(db, user.id)
     return None
 

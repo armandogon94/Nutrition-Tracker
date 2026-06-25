@@ -1,8 +1,9 @@
 import uuid
-from datetime import date, datetime
+from datetime import date
 
 from pydantic import BaseModel, Field
 
+from app.core.datetime_utils import UTCDateTime
 from app.schemas.product import ProductResponse
 
 
@@ -22,7 +23,7 @@ class MealPlanItemResponse(BaseModel):
     quantity_servings: float
     quantity_grams: float | None
     product: ProductResponse
-    created_at: datetime
+    created_at: UTCDateTime
 
     model_config = {"from_attributes": True}
 
@@ -42,7 +43,7 @@ class MealPlanResponse(BaseModel):
     notes: str | None
     is_template: bool
     items: list[MealPlanItemResponse] = []
-    created_at: datetime
+    created_at: UTCDateTime
 
     model_config = {"from_attributes": True}
 
@@ -53,4 +54,4 @@ class MealPlanListResponse(BaseModel):
     week_start_date: date
     is_template: bool
     items_count: int
-    created_at: datetime
+    created_at: UTCDateTime
