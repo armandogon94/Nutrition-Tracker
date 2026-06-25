@@ -76,8 +76,19 @@ protocol MealLoggingServiceProtocol: MealsServiceProtocol {
 
 @MainActor
 protocol MealPlanServiceProtocol: AnyObject {
-    func currentPlan() async throws -> MealPlan?
-    func shoppingList() async throws -> [ShoppingItem]
+    /// The cached plan for a specific week and user. Scoping by both is
+    /// required for correctness: the weekly planner has prev/next-week
+    /// controls (so "the latest plan" is the wrong answer once you navigate),
+    /// and a shared device can hold plans for more than one local user (so an
+    /// unscoped read could surface another account's plan). Returns nil when
+    /// that user has no plan for that week.
+    func currentPlan(forWeek weekStart: Date, userId: UUID) async throws -> MealPlan?
+
+    /// The cached shopping-list items for a specific plan. Scoped by plan so
+    /// the list shown always belongs to the active week's plan rather than
+    /// whichever list happens to be newest in the cache.
+    func shoppingList(forPlan planId: UUID) async throws -> [ShoppingItem]
+
     func toggleChecked(_ itemId: UUID) async throws
 }
 
@@ -118,9 +129,10 @@ protocol MealPlanningServiceProtocol: MealPlanServiceProtocol {
     /// Set the checked state of a shopping item (cache + backend PATCH).
     func setChecked(_ itemId: UUID, checked: Bool, listId: UUID) async throws
 
-    /// The id of the most recently generated shopping list in the cache,
-    /// if any. Views need it to address the check PATCH endpoint.
-    func currentShoppingListId() async throws -> UUID?
+    /// The id of the cached shopping list for a specific plan, if any. Views
+    /// need it to address the check PATCH endpoint. Scoped by plan so a
+    /// shared device / multi-week cache never addresses another plan's list.
+    func currentShoppingListId(forPlan planId: UUID) async throws -> UUID?
 }
 
 // MARK: - Profile + Goals

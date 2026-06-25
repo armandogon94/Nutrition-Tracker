@@ -24,13 +24,20 @@ struct ShoppingListView: View {
     /// Optional pre-generated items (from "Generate shopping list").
     let initialItems: [ShoppingItem]?
 
+    /// The plan this list belongs to. All cache reads and regeneration are
+    /// scoped to it so a shared device / multi-week cache never shows or
+    /// regenerates another plan's list. Nil only in previews (where the view
+    /// just renders `initialItems`).
+    let planId: UUID?
+
     @State private var service: MealPlanService?
     @State private var items: [ShoppingItem] = []
     @State private var listId: UUID?
     @State private var isWorking = false
 
-    init(initialItems: [ShoppingItem]? = nil) {
+    init(initialItems: [ShoppingItem]? = nil, planId: UUID? = nil) {
         self.initialItems = initialItems
+        self.planId = planId
     }
 
     private var grouped: [(category: ShoppingCategory, items: [ShoppingItem])] {
@@ -191,10 +198,22 @@ struct ShoppingListView: View {
 
         if let initialItems, !initialItems.isEmpty {
             items = sortForDisplay(initialItems)
+        } else if let planId {
+            items = sortForDisplay((try? await svc.shoppingList(forPlan: planId)) ?? [])
         } else {
-            items = sortForDisplay((try? await svc.shoppingList()) ?? [])
+            items = []
         }
-        listId = try? await svc.currentShoppingListId()
+        if let planId {
+            listId = try? await svc.currentShoppingListId(forPlan: planId)
+        }
+    }
+
+    /// Re-read the cached list for this plan. Used on the offline-refresh path
+    /// after a failed mutation. Falls back to the current `items` when there is
+    /// no plan scope (previews) or the cache read fails.
+    private func reloadFromCache() async -> [ShoppingItem] {
+        guard let service, let planId else { return items }
+        return sortForDisplay((try? await service.shoppingList(forPlan: planId)) ?? items)
     }
 
     private func toggle(_ item: ShoppingItem) async {
@@ -209,8 +228,8 @@ struct ShoppingListView: View {
             try await service.setChecked(item.id, checked: newValue, listId: listId)
         } catch {
             // Local cache already updated optimistically (offline-first);
-            // refresh from cache so the UI matches what persisted.
-            items = sortForDisplay((try? await service.shoppingList()) ?? items)
+            // refresh from this plan's cached list so the UI matches what persisted.
+            items = await reloadFromCache()
         }
     }
 
@@ -221,23 +240,19 @@ struct ShoppingListView: View {
         for item in items where item.checked {
             try? await service.setChecked(item.id, checked: false, listId: listId)
         }
-        items = sortForDisplay((try? await service.shoppingList()) ?? items)
+        items = await reloadFromCache()
     }
 
     private func regenerate() async {
-        guard let service, let listId else { return }
+        guard let service, let planId else { return }
         isWorking = true
         defer { isWorking = false }
-        // Find the plan this list was generated from via the cache, then
-        // re-run generation. currentPlan() gives the latest plan, which is
-        // the one the list belongs to in the common single-plan case.
-        _ = listId
+        // Regenerate the list for THIS plan (the one we were opened for), not
+        // whichever plan happens to be latest in the cache.
         let userId = services.auth.currentUser?.id ?? MockData.user.id
-        if let plan = try? await service.currentPlan() {
-            let fresh = (try? await service.generateShoppingList(forPlan: plan.id, userId: userId)) ?? []
-            items = sortForDisplay(fresh)
-            self.listId = try? await service.currentShoppingListId()
-        }
+        let fresh = (try? await service.generateShoppingList(forPlan: planId, userId: userId)) ?? []
+        items = sortForDisplay(fresh)
+        self.listId = try? await service.currentShoppingListId(forPlan: planId)
     }
 
     private func sortForDisplay(_ xs: [ShoppingItem]) -> [ShoppingItem] {

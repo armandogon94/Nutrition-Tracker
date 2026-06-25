@@ -46,9 +46,10 @@ func mockAuth_quickLogin() {
 @Test("MockMealPlanService toggleChecked persists in-session")
 func mockMealPlan_toggleChecked() async throws {
     let sut = MockMealPlanService()
-    let initial = try await sut.shoppingList()
+    let planId = UUID()
+    let initial = try await sut.shoppingList(forPlan: planId)
     let firstUnchecked = try #require(initial.first { !$0.checked })
     try await sut.toggleChecked(firstUnchecked.id)
-    let after = try await sut.shoppingList()
+    let after = try await sut.shoppingList(forPlan: planId)
     #expect(after.first { $0.id == firstUnchecked.id }?.checked == true)
 }

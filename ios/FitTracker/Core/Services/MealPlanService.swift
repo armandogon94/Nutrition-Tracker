@@ -270,8 +270,13 @@ final class MealPlanService: MealPlanningServiceProtocol {
         }
     }
 
-    func currentShoppingListId() async throws -> UUID? {
+    /// The cached shopping list id for one plan. Scoped by `mealPlanId` so a
+    /// multi-week / shared-device cache never addresses another plan's list.
+    /// If a plan ever has more than one cached list (e.g. a pre-fix duplicate),
+    /// the most recently generated one wins.
+    func currentShoppingListId(forPlan planId: UUID) async throws -> UUID? {
         var descriptor = FetchDescriptor<ShoppingListEntity>(
+            predicate: #Predicate { $0.mealPlanId == planId },
             sortBy: [SortDescriptor(\.generatedAt, order: .reverse)]
         )
         descriptor.fetchLimit = 1
@@ -280,8 +285,15 @@ final class MealPlanService: MealPlanningServiceProtocol {
 
     // MARK: - MealPlanServiceProtocol (read surface)
 
-    func currentPlan() async throws -> MealPlan? {
+    /// The cached plan for one (user, week). Scoped by both so navigating the
+    /// week picker shows the right week, and a shared device never crosses
+    /// users. The `weekStart` is the Monday-00:00-UTC value produced by
+    /// `MealPlanWeek.weekStart(for:)`; the backend's date-only `week_start_date`
+    /// decodes to the same instant (APIClient's date-only branch is UTC), so an
+    /// exact-equality predicate matches the cached row.
+    func currentPlan(forWeek weekStart: Date, userId: UUID) async throws -> MealPlan? {
         var descriptor = FetchDescriptor<MealPlanEntity>(
+            predicate: #Predicate { $0.userId == userId && $0.weekStartDate == weekStart },
             sortBy: [SortDescriptor(\.weekStartDate, order: .reverse)]
         )
         descriptor.fetchLimit = 1
@@ -311,8 +323,13 @@ final class MealPlanService: MealPlanningServiceProtocol {
         cacheProductIds(from: dto)
     }
 
-    func shoppingList() async throws -> [ShoppingItem] {
+    /// The cached shopping-list items for one plan. Scoped by `mealPlanId` so
+    /// the list always belongs to the active plan rather than whichever list
+    /// is newest in the cache. Most-recently-generated list wins if a plan
+    /// somehow has more than one cached.
+    func shoppingList(forPlan planId: UUID) async throws -> [ShoppingItem] {
         var descriptor = FetchDescriptor<ShoppingListEntity>(
+            predicate: #Predicate { $0.mealPlanId == planId },
             sortBy: [SortDescriptor(\.generatedAt, order: .reverse)]
         )
         descriptor.fetchLimit = 1
