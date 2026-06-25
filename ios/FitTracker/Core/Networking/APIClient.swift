@@ -38,6 +38,16 @@ actor APIClient {
     private let tokenProvider: (any TokenProvider)?
     private let decoder: JSONDecoder
 
+    /// Optional 401 refresh coordinator, injected after construction via
+    /// `setRefresher(_:)` because the typical refresher (AuthService) needs a
+    /// reference to *this* client first, so they cannot be built in one step.
+    /// When set, a 401 triggers a single refresh + one retry (see performRaw).
+    ///
+    /// Held in a lock-protected box so the setter can be `nonisolated` and
+    /// callable synchronously from `production()` (which is not async) without
+    /// hopping onto the actor; reads happen on the actor inside `performRaw`.
+    private let refresherBox = RefresherBox()
+
     init(
         baseURL: URL = APIConfig.baseURL,
         tokenProvider: (any TokenProvider)? = nil,
@@ -57,6 +67,13 @@ actor APIClient {
             throw DecodingError.dataCorruptedError(in: c, debugDescription: "Cannot parse date: \(s)")
         }
         self.decoder = dec
+    }
+
+    /// Registers the 401 refresh coordinator. Synchronous + `nonisolated` so
+    /// `production()` can wire `AuthService` (built with this client) back as
+    /// the refresher without making the whole DI factory async.
+    nonisolated func setRefresher(_ refresher: any TokenRefreshing) {
+        refresherBox.set(refresher)
     }
 
     // MARK: - Public API
@@ -150,7 +167,11 @@ actor APIClient {
         }
     }
 
-    private func performRaw(_ req: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    /// - Parameter allowRefresh: when `true` (the default), a 401 triggers a
+    ///   single refresh + retry. The retry calls back in with `false` so it
+    ///   can never refresh again — that one-shot flag is what bounds the loop.
+    private func performRaw(_ req: URLRequest,
+                            allowRefresh: Bool = true) async throws -> (Data, HTTPURLResponse) {
         let data: Data
         let response: URLResponse
         do {
@@ -174,6 +195,12 @@ actor APIClient {
         case 200...299:
             return (data, http)
         case 401:
+            // Attempt a one-shot refresh + retry. Only when refresh is still
+            // allowed (not already a retry) and a coordinator is configured;
+            // otherwise fall through to the legacy `.unauthorized`.
+            if allowRefresh, let refresher = refresherBox.get() {
+                return try await refreshAndRetry(req, refresher: refresher)
+            }
             throw APIError.unauthorized
         case 404:
             throw APIError.notFound
@@ -184,6 +211,27 @@ actor APIClient {
             let detail = Self.extractDetail(from: data)
             throw APIError.server(status: http.statusCode, detail: detail)
         }
+    }
+
+    /// Refreshes the access token exactly once (the refresher itself is
+    /// single-flight, so concurrent 401s collapse into one round-trip), swaps
+    /// the new Bearer token onto the original request, and retries it a single
+    /// time with `allowRefresh: false`. A failed refresh — or a retry that is
+    /// itself 401 — surfaces `.unauthorized`. Actor reentrancy is safe: the
+    /// `await` here is the only suspension, and the `false` flag guarantees a
+    /// retried request cannot recurse back into this method.
+    private func refreshAndRetry(_ original: URLRequest,
+                                 refresher: any TokenRefreshing) async throws -> (Data, HTTPURLResponse) {
+        let newToken: String
+        do {
+            newToken = try await refresher.refreshAccessToken()
+        } catch {
+            // Refresh failed → the session is unrecoverable.
+            throw APIError.unauthorized
+        }
+        var retryReq = original
+        retryReq.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
+        return try await performRaw(retryReq, allowRefresh: false)
     }
 
     private static func extractDetail(from data: Data) -> String? {
@@ -210,5 +258,23 @@ actor APIClient {
         case .string(let s): return s
         case .array(let errs): return errs.compactMap { $0.msg }.joined(separator: "; ")
         }
+    }
+}
+
+/// Lock-protected holder for the optional `TokenRefreshing` coordinator so
+/// `APIClient.setRefresher(_:)` can be a synchronous, `nonisolated` setter
+/// while the actor reads the value safely on its own executor.
+private final class RefresherBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var refresher: (any TokenRefreshing)?
+
+    func set(_ refresher: any TokenRefreshing) {
+        lock.lock(); defer { lock.unlock() }
+        self.refresher = refresher
+    }
+
+    func get() -> (any TokenRefreshing)? {
+        lock.lock(); defer { lock.unlock() }
+        return refresher
     }
 }
