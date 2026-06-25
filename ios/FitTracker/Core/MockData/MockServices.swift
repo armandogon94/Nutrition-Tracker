@@ -266,17 +266,24 @@ final class MockServiceContainer {
     /// the real `NutritionService` (SwiftData-backed stale-while-revalidate
     /// cache); previews + tap-through keep `MockNutritionService`.
     let nutrition: any NutritionServiceProtocol
-    let products = MockProductsService()
-    let meals = MockMealsService()
-    let mealPlan = MockMealPlanService()
+    /// DI migration (codex P0 "production DI still mock"): products, meals,
+    /// mealPlan, programs, exercises, and workouts are now protocol-typed
+    /// slots too — `production()` fills them with the real concrete services
+    /// over one shared authenticated `APIClient` + the live SwiftData store,
+    /// while the default initializer keeps the mocks for previews/tests.
+    /// They were previously hardcoded `let = Mock…()` so even the shipped
+    /// app ran fake data and never exercised those backend contracts.
+    let products: any ProductsServiceProtocol
+    let meals: any MealsServiceProtocol
+    let mealPlan: any MealPlanServiceProtocol
     /// Slice 5.2: profile is protocol-typed so production injects the real
     /// `ProfileService` (backend profile + TDEE + goals). ProfileView /
     /// TDEECalculatorView / GoalsView / SettingsView consume it through
     /// `any ProfileServiceProtocol` unchanged; previews keep the mock.
     let profile: any ProfileServiceProtocol
-    let programs = MockProgramsService()
-    let exercises = MockExercisesService()
-    let workouts = MockWorkoutService()
+    let programs: any ProgramsServiceProtocol
+    let exercises: any ExercisesServiceProtocol
+    let workouts: any WorkoutServiceProtocol
     /// History/analytics aggregation. Protocol-typed so production can inject
     /// the SwiftData-backed `HistoryService` (Slice 8) while previews +
     /// tap-through keep the in-memory mock.
@@ -285,12 +292,24 @@ final class MockServiceContainer {
     init(auth: (any AuthServiceProtocol)? = nil,
          nutrition: (any NutritionServiceProtocol)? = nil,
          profile: (any ProfileServiceProtocol)? = nil,
-         history: (any HistoryServiceProtocol)? = nil) {
+         history: (any HistoryServiceProtocol)? = nil,
+         products: (any ProductsServiceProtocol)? = nil,
+         meals: (any MealsServiceProtocol)? = nil,
+         mealPlan: (any MealPlanServiceProtocol)? = nil,
+         programs: (any ProgramsServiceProtocol)? = nil,
+         exercises: (any ExercisesServiceProtocol)? = nil,
+         workouts: (any WorkoutServiceProtocol)? = nil) {
         let resolvedAuth = auth ?? MockAuthService()
         self.auth = resolvedAuth
         self.nutrition = nutrition ?? MockNutritionService()
         self.profile = profile ?? MockProfileService()
         self.history = history ?? MockHistoryService()
+        self.products = products ?? MockProductsService()
+        self.meals = meals ?? MockMealsService()
+        self.mealPlan = mealPlan ?? MockMealPlanService()
+        self.programs = programs ?? MockProgramsService()
+        self.exercises = exercises ?? MockExercisesService()
+        self.workouts = workouts ?? MockWorkoutService()
 
         #if DEBUG
         // Auto-login when the app is launched with `-uiAutoLogin carlos`.
@@ -309,10 +328,18 @@ final class MockServiceContainer {
         #endif
     }
 
-    /// Production wiring: real AuthService + real NutritionService backed
-    /// by the live SwiftData store. The real NutritionService reads the
-    /// authenticated user's id from AuthService so its cache predicates and
-    /// `/api/v1/nutrition/daily/<date>` fetches scope to the right account.
+    /// Production wiring: real services for EVERY domain, backed by ONE
+    /// shared authenticated `APIClient` (Bearer token from
+    /// `KeychainTokenStore.shared`) and the live SwiftData store. The real
+    /// services read the authenticated user's id from the SAME `AuthService`
+    /// instance — either at construction (nutrition/history, via the `userId`
+    /// closure over `auth.currentUser`) or per call (meals/mealPlan/workouts
+    /// take `userId` as a method argument) — so every cache predicate and
+    /// backend fetch scopes to the right account once the user logs in.
+    ///
+    /// Sharing one `APIClient` matters: it is the single place a 401 →
+    /// refresh → retry interceptor belongs, so every domain benefits from a
+    /// single-flight token refresh rather than each service racing its own.
     ///
     /// `FitTrackerApp.makeServiceContainer()` calls this on launch (except
     /// when `-useMockAuth` forces the all-mock path for design review).
@@ -320,24 +347,36 @@ final class MockServiceContainer {
     /// initializer stays pure-mock for previews and unit tests.
     static func production() -> MockServiceContainer {
         let auth = AuthService()
+        // ONE shared authenticated client for the whole app, so every domain
+        // sends the same Bearer token and (once the 401 interceptor lands)
+        // shares a single-flight token refresh rather than racing its own.
         let api = APIClient(tokenProvider: KeychainTokenStore.shared)
+
+        let liveContainer = PersistenceController.live.container
+        let liveContext = liveContainer.mainContext
+        let currentUserId: () -> UUID? = { [weak auth] in auth?.currentUser?.id }
+
         let nutrition = NutritionService(
-            api: api,
-            context: PersistenceController.live.container.mainContext,
-            userId: { [weak auth] in auth?.currentUser?.id }
+            api: api, context: liveContext, userId: currentUserId
         )
         let profile = ProfileService(api: api)
         // Slice 8 B1 fix: inject the REAL HistoryService so the Progreso tab
-        // aggregates the live SwiftData store instead of MockData. It reads the
-        // authenticated user's id at query time from the SAME auth instance
-        // used for nutrition, so its session/PR queries scope to the right
-        // account once the user logs in.
-        let history = HistoryService(
-            container: PersistenceController.live.container,
-            userId: { [weak auth] in auth?.currentUser?.id }
+        // aggregates the live SwiftData store instead of MockData.
+        let history = HistoryService(container: liveContainer, userId: currentUserId)
+
+        // DI migration: the remaining domains, previously stuck on mocks.
+        let products = ProductService(api: api)
+        let meals = MealService(api: api, context: liveContext)
+        let mealPlan = MealPlanService(api: api, context: liveContext)
+        let programs = ProgramsService(api: api, container: liveContainer)
+        let exercises = ExercisesService(api: api, container: liveContainer)
+        let workouts = WorkoutService(api: api, context: liveContext)
+
+        return MockServiceContainer(
+            auth: auth, nutrition: nutrition, profile: profile, history: history,
+            products: products, meals: meals, mealPlan: mealPlan,
+            programs: programs, exercises: exercises, workouts: workouts
         )
-        return MockServiceContainer(auth: auth, nutrition: nutrition,
-                                    profile: profile, history: history)
     }
 }
 
