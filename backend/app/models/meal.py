@@ -33,6 +33,11 @@ class MealItem(Base):
     product_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("products.id"))
     quantity_servings: Mapped[float] = mapped_column(default=1.0)
     quantity_grams: Mapped[float | None] = mapped_column()
+    # Slice 3 / hardening: client-generated id for the offline-retry queue.
+    # POST /meals/log is idempotent on (meal_id, client_item_id) so replaying a
+    # queued mutation does not create duplicate items. Nullable because items
+    # added via the legacy POST /meals/{id}/items route do not carry one.
+    client_item_id: Mapped[str | None] = mapped_column(String(64), index=True)
     created_at: Mapped[datetime] = mapped_column(default=_utcnow)
 
     meal: Mapped["Meal"] = relationship(back_populates="items")
