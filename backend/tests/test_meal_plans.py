@@ -189,6 +189,43 @@ async def test_generate_shopping_list(auth_client, db_session):
     assert total_qty == pytest.approx(300.0, rel=0.01)
 
 
+async def test_generate_shopping_list_is_idempotent(auth_client, db_session):
+    """Generating twice for the same plan must not accumulate duplicate lists
+    (regression test for the Codex cycle-3 idempotency fix)."""
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from app.models.shopping_list import ShoppingList
+
+    product = await _create_product(db_session, "idem")
+    create_resp = await auth_client.post(
+        "/api/v1/meal-plans",
+        json={"name": "Idem Plan", "week_start_date": "2026-06-01"},
+    )
+    plan_id = create_resp.json()["id"]
+    await auth_client.post(
+        f"/api/v1/meal-plans/{plan_id}/items",
+        json={
+            "product_id": str(product.id),
+            "day_of_week": 0,
+            "meal_type": "breakfast",
+            "quantity_servings": 1.0,
+        },
+    )
+
+    r1 = await auth_client.get(f"/api/v1/meal-plans/{plan_id}/shopping-list")
+    assert r1.status_code == 200
+    r2 = await auth_client.get(f"/api/v1/meal-plans/{plan_id}/shopping-list")
+    assert r2.status_code == 200
+
+    # Exactly one ShoppingList row should exist for this plan after two generations.
+    result = await db_session.execute(
+        select(ShoppingList).where(ShoppingList.meal_plan_id == UUID(plan_id))
+    )
+    assert len(result.scalars().all()) == 1
+
+
 async def test_toggle_shopping_item(auth_client, db_session):
     product = await _create_product(db_session, "toggle")
 

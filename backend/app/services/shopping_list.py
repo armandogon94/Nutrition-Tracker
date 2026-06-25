@@ -1,7 +1,7 @@
 from collections import defaultdict
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.meal_plan import MealPlan, MealPlanItem
@@ -58,6 +58,24 @@ async def generate_shopping_list(
         aggregated[key]["unit"] = "g"
         aggregated[key]["name"] = product.name
         aggregated[key]["category"] = _categorize_product(product)
+
+    # Idempotent regeneration: drop any prior list(s) for this (user, plan)
+    # so repeated generation replaces rather than accumulating duplicate rows.
+    existing = await session.execute(
+        select(ShoppingList.id).where(
+            ShoppingList.user_id == user_id,
+            ShoppingList.meal_plan_id == meal_plan_id,
+        )
+    )
+    existing_ids = [row[0] for row in existing.all()]
+    if existing_ids:
+        await session.execute(
+            delete(ShoppingListItem).where(ShoppingListItem.shopping_list_id.in_(existing_ids))
+        )
+        await session.execute(
+            delete(ShoppingList).where(ShoppingList.id.in_(existing_ids))
+        )
+        await session.flush()
 
     # Create shopping list
     shopping_list = ShoppingList(
