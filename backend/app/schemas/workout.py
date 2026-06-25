@@ -3,6 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.core.datetime_utils import UTCDateTime
 from app.schemas.exercise import ExerciseResponse
 
 
@@ -90,7 +91,7 @@ class SetResponse(BaseModel):
     weight_kg: float | None
     rpe: float | None
     is_pr: bool
-    completed_at: datetime
+    completed_at: UTCDateTime
 
     model_config = {"from_attributes": True}
 
@@ -100,8 +101,8 @@ class SessionResponse(BaseModel):
     user_id: uuid.UUID
     program_id: uuid.UUID | None
     program_day_id: uuid.UUID | None
-    started_at: datetime
-    completed_at: datetime | None
+    started_at: UTCDateTime
+    completed_at: UTCDateTime | None
     duration_minutes: int | None
     notes: str | None
     sets: list[SetResponse] = []
@@ -119,7 +120,7 @@ class PersonalRecordResponse(BaseModel):
     max_weight_kg: float | None
     max_reps_at_weight: int | None
     estimated_1rm: float | None
-    achieved_at: datetime
+    achieved_at: UTCDateTime
 
     model_config = {"from_attributes": True}
 
@@ -132,8 +133,8 @@ class VolumeByMuscle(BaseModel):
 
 class WorkoutHistoryEntry(BaseModel):
     id: uuid.UUID
-    started_at: datetime
-    completed_at: datetime | None
+    started_at: UTCDateTime
+    completed_at: UTCDateTime | None
     duration_minutes: int | None
     program_name: str | None = None
     day_name: str | None = None

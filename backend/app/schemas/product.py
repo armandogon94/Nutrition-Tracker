@@ -1,7 +1,8 @@
 import uuid
-from datetime import datetime
 
 from pydantic import BaseModel, Field
+
+from app.core.datetime_utils import UTCDateTime
 
 
 class ProductCreate(BaseModel):
@@ -31,7 +32,7 @@ class ProductResponse(BaseModel):
     fiber_g: float
     source: str
     image_url: str | None
-    created_at: datetime
+    created_at: UTCDateTime
 
     model_config = {"from_attributes": True}
 

@@ -1,7 +1,8 @@
 import uuid
-from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field
+
+from app.core.datetime_utils import UTCDateTime
 
 
 class UserRegister(BaseModel):
@@ -19,7 +20,7 @@ class UserResponse(BaseModel):
     id: uuid.UUID
     email: str
     display_name: str
-    created_at: datetime
+    created_at: UTCDateTime
 
     model_config = {"from_attributes": True}
 

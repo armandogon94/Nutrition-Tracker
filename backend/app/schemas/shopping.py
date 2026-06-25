@@ -1,7 +1,8 @@
 import uuid
-from datetime import datetime
 
 from pydantic import BaseModel
+
+from app.core.datetime_utils import UTCDateTime
 
 
 class ShoppingListItemResponse(BaseModel):
@@ -20,7 +21,7 @@ class ShoppingListResponse(BaseModel):
     name: str | None
     meal_plan_id: uuid.UUID | None
     items: list[ShoppingListItemResponse] = []
-    generated_at: datetime
+    generated_at: UTCDateTime
 
     model_config = {"from_attributes": True}
 
