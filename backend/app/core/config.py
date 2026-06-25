@@ -30,6 +30,12 @@ class Settings(BaseSettings):
 
     # Claude Vision (photo food recognition)
     anthropic_api_key: str = ""
+    anthropic_base_url: str = "https://api.anthropic.com"
+    anthropic_version: str = "2023-06-01"
+    # Sonnet handles vision; overridable so we can pin a snapshot in prod.
+    vision_model: str = "claude-sonnet-4-5"
+    # Reject oversized uploads before they reach the vision provider.
+    max_image_bytes: int = 5 * 1024 * 1024  # 5 MiB
 
     # CORS
     frontend_url: str = "http://localhost:3000"
