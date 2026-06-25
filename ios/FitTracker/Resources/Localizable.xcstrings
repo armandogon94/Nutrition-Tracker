@@ -1458,6 +1458,96 @@
         }
       }
     },
+    "settings.deleteAccount.button": {
+      "comment": "Destructive button that starts account deletion.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete account"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar cuenta"
+          }
+        }
+      }
+    },
+    "settings.deleteAccount.confirm.action": {
+      "comment": "Confirm button in the delete-account dialog.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete account"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar cuenta"
+          }
+        }
+      }
+    },
+    "settings.deleteAccount.confirm.message": {
+      "comment": "Body of the delete-account confirmation dialog.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This is permanent. Your account and all of your data will be deleted. This cannot be undone."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta acción es permanente. Se eliminarán tu cuenta y todos tus datos. No se puede deshacer."
+          }
+        }
+      }
+    },
+    "settings.deleteAccount.confirm.title": {
+      "comment": "Title of the delete-account confirmation dialog.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete your account?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar tu cuenta?"
+          }
+        }
+      }
+    },
+    "settings.deleteAccount.error": {
+      "comment": "Shown when account deletion fails for a recoverable reason.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "We couldn't delete your account. Please try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No pudimos eliminar tu cuenta. Inténtalo de nuevo."
+          }
+        }
+      }
+    },
     "settings.row.goals": {
       "comment": "Settings row that opens the goals editor.",
       "extractionState": "manual",
