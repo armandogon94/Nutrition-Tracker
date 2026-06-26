@@ -14,6 +14,16 @@ struct ProgramDetailView: View {
     let program: WorkoutProgram
     var injectedService: (any ProgramsServiceProtocol)?
 
+    /// Resolves the programs service: explicit override first, otherwise the
+    /// container's shared-client `ProgramsService` (mirroring ProgramsListView).
+    /// Reading the container here is what lets `loadDays()` hydrate days in
+    /// normal production navigation — previously `injectedService` was nil in
+    /// production, so the detail screen fell back to the list DTO's empty
+    /// `days` and showed "no days" (codex-review-4 P1).
+    private var service: any ProgramsServiceProtocol {
+        injectedService ?? services.programs
+    }
+
     /// Hydrated days from the detail endpoint. The list endpoint returns
     /// programs without nested days, so we re-fetch on appear if empty.
     @State private var days: [WorkoutProgramDay] = []
@@ -129,10 +139,9 @@ struct ProgramDetailView: View {
             days = program.days
             return
         }
-        guard let service = injectedService else {
-            days = program.days
-            return
-        }
+        // Otherwise hydrate via the resolved service. The list endpoint maps
+        // `days: []`, so without this fetch the detail screen would be empty
+        // and the user could never start the workout (codex-review-4 P1).
         isLoading = true
         defer { isLoading = false }
         do {

@@ -48,7 +48,11 @@ struct ProgramsListView: View {
                 LazyVStack(spacing: 14) {
                     ForEach(programs, id: \.id) { program in
                         NavigationLink {
-                            ProgramDetailView(program: program, injectedService: injectedService)
+                            // Pass the RESOLVED service (override or
+                            // container.programs), not the raw `injectedService`
+                            // which is nil in production — otherwise detail can't
+                            // hydrate days and shows "no days" (codex-review-4 P1).
+                            ProgramDetailView(program: program, injectedService: service)
                         } label: {
                             ProgramCard(program: program)
                         }
