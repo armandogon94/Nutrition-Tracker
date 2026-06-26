@@ -55,10 +55,30 @@ final class MealService: MealLoggingServiceProtocol {
     /// `pendingSync` locally).
     private let offlineQueue: OfflineQueue?
 
-    init(api: APIClient, context: ModelContext, offlineQueue: OfflineQueue? = .shared) {
+    /// Test-only seam for forcing a local persist failure. Production passes
+    /// `nil`, so every save goes straight through `context.save()`. Tests inject
+    /// a throwing hook to exercise the delete-path rollback (Codex review #5
+    /// P2) without needing to corrupt the SwiftData store.
+    private let saveHook: (@MainActor (ModelContext) throws -> Void)?
+
+    init(api: APIClient,
+         context: ModelContext,
+         offlineQueue: OfflineQueue? = .shared,
+         saveHook: (@MainActor (ModelContext) throws -> Void)? = nil) {
         self.api = api
         self.context = context
         self.offlineQueue = offlineQueue
+        self.saveHook = saveHook
+    }
+
+    /// Persist pending changes, routing through the injected `saveHook` when
+    /// present (tests) and otherwise calling `context.save()` directly.
+    private func persist() throws {
+        if let saveHook {
+            try saveHook(context)
+        } else {
+            try context.save()
+        }
     }
 
     // MARK: - Date encoding
@@ -153,7 +173,7 @@ final class MealService: MealLoggingServiceProtocol {
         parent.items.append(entity)
         // A failure HERE is a true "failed to save" — the optimistic local
         // write didn't even persist — so it propagates to the caller.
-        try context.save()
+        try persist()
 
         // Build the durable mutation and ENQUEUE IT BEFORE the network call.
         // The `client_item_id` (the snapshot's local id) makes the write
@@ -197,7 +217,7 @@ final class MealService: MealLoggingServiceProtocol {
                 parent.pendingSync = false
                 parent.lastSyncedAt = .now
             }
-            try? context.save()
+            try? persist()
             return MealLogOutcome(item: snapshot, state: .synced)
         } catch {
             // Backend unreachable / rejected. The durable mutation is ALREADY
@@ -270,8 +290,20 @@ final class MealService: MealLoggingServiceProtocol {
             await offlineQueue?.enqueue(.deleteMealItem(DeleteMealItemPayload(ownerId: ownerId, id: itemId)))
         }
 
+        // Optimistic local delete. If the SAVE fails, the tombstone we just
+        // queued would otherwise survive and a later replay could delete the
+        // SERVER row while the local row is still present — a silent divergence
+        // (Codex review #5 P2). So on failure we remove the tombstone before
+        // rethrowing, leaving local + queue consistent (nothing deleted yet).
         context.delete(item)
-        try context.save()
+        do {
+            try persist()
+        } catch {
+            if ownerId != nil {
+                await offlineQueue?.remove(id: itemId)
+            }
+            throw error
+        }
 
         do {
             try await api.delete("/api/v1/meals/items/\(itemId.uuidString)")

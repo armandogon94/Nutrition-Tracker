@@ -22,6 +22,21 @@ final class AuthService: AuthServiceProtocol, TokenRefreshing {
     private(set) var isAuthenticated: Bool
     private(set) var currentUser: MockUser?
 
+    /// Monotonic auth-session counter. Bumped on `signOut()` AND on every
+    /// successful auth (login / register / Apple / restoreSession). It gives
+    /// offline replay a reliable cancellation boundary that does NOT depend on
+    /// comparing only user ids: `SyncManager` captures `(ownerId, generation)`
+    /// when it starts replaying a queued mutation, and `APIClient` re-checks
+    /// the LIVE generation both before the initial send and before swapping in
+    /// a refreshed token on a 401. If the generation moved (sign-out, or an
+    /// account switch A→B that re-authenticates), the replay aborts and the
+    /// mutation stays queued — so user A's offline write can never be sent
+    /// under user B's bearer token across the refresh/account-switch race
+    /// (Codex review #5 P0). Distinct from `currentUser?.id`: re-logging in as
+    /// the SAME user still bumps the generation, which is the safe behavior
+    /// (a fresh session must not silently inherit an in-flight replay).
+    private(set) var sessionGeneration: Int = 0
+
     // MARK: - Dependencies
 
     private let api: APIClient
@@ -65,6 +80,11 @@ final class AuthService: AuthServiceProtocol, TokenRefreshing {
             // Will refresh if access token is near expiry
             _ = try await currentAccessTokenIfValid()
             try await loadCurrentUser()
+            // Cold-launch restore establishes WHO is signed in for the first
+            // time this process; bump the generation so any replay captured
+            // before the user was known re-validates against a concrete
+            // session (Codex review #5 P0/P1).
+            beginNewSession()
         } catch {
             keychain.clearAll()
             currentUser = nil
@@ -79,6 +99,7 @@ final class AuthService: AuthServiceProtocol, TokenRefreshing {
         let tokens: AuthTokens = try await api.post("/api/v1/auth/login", body: body)
         await persist(tokens: tokens)
         try await loadCurrentUser()
+        beginNewSession()
         isAuthenticated = true
     }
 
@@ -87,6 +108,7 @@ final class AuthService: AuthServiceProtocol, TokenRefreshing {
         let tokens: AuthTokens = try await api.post("/api/v1/auth/register", body: body)
         await persist(tokens: tokens)
         try await loadCurrentUser()
+        beginNewSession()
         isAuthenticated = true
     }
 
@@ -107,6 +129,7 @@ final class AuthService: AuthServiceProtocol, TokenRefreshing {
         let tokens: AuthTokens = try await api.post("/api/v1/auth/apple", body: body)
         await persist(tokens: tokens)
         try await loadCurrentUser()
+        beginNewSession()
         isAuthenticated = true
     }
 
@@ -119,6 +142,13 @@ final class AuthService: AuthServiceProtocol, TokenRefreshing {
         // linger and replay under the next account. Crash-safe (single atomic
         // UserDefaults write). Account deletion routes through sign-out too.
         let signingOutUserId = currentUser?.id
+
+        // Bump the session generation FIRST so any replay already in flight
+        // (captured under the signing-out user's generation) fails its
+        // request-level auth guard immediately and never sends under whatever
+        // account comes next (Codex review #5 P0). Doing this before the await
+        // below closes the window where the network revoke is in flight.
+        sessionGeneration &+= 1
 
         // Best-effort server-side revocation; ignore failures so local logout
         // always succeeds even when offline.
@@ -174,6 +204,14 @@ final class AuthService: AuthServiceProtocol, TokenRefreshing {
     }
 
     // MARK: - Private
+
+    /// Advances the auth-session generation, marking the boundary of a brand
+    /// new authenticated session. Any offline replay captured under a previous
+    /// generation will now fail its request-level guard (see `sessionGeneration`).
+    /// `&+=` wraps instead of trapping on the (practically impossible) overflow.
+    private func beginNewSession() {
+        sessionGeneration &+= 1
+    }
 
     private func loadCurrentUser() async throws {
         let resp: AuthMeResponse = try await api.get("/api/v1/auth/me")

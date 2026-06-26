@@ -172,6 +172,69 @@ struct AuthServiceTests {
         #expect(kc.currentAccessToken() == nil)
     }
 
+    // MARK: - Session generation (Codex review #5 P0)
+
+    @MainActor
+    @Test("sessionGeneration advances on a successful login")
+    func sessionGeneration_bumpsOnLogin() async throws {
+        let (sut, kc) = await makeSUT()
+        defer { kc.clearAll() }
+        let before = sut.sessionGeneration
+
+        MockURLProtocol.handler = { req in
+            if req.url?.path.hasSuffix("/auth/login") == true {
+                return (Self.okResponse(req), Data(Self.okTokensJSON.utf8))
+            }
+            if req.url?.path.hasSuffix("/auth/me") == true {
+                return (Self.okResponse(req), Data(Self.meJSON.utf8))
+            }
+            return (Self.notFoundResponse(req), Data())
+        }
+
+        try await sut.login(email: "carlos@fittracker.dev", password: "test1234")
+        #expect(sut.sessionGeneration > before,
+                "a fresh authenticated session must advance the generation so stale replays abort")
+    }
+
+    @MainActor
+    @Test("sessionGeneration advances on sign-out")
+    func sessionGeneration_bumpsOnSignOut() async throws {
+        let (sut, kc) = await makeSUT(seedAccess: "acc", seedRefresh: "ref",
+                                      seedExpiry: Date().addingTimeInterval(3600))
+        defer { kc.clearAll() }
+        MockURLProtocol.handler = { req in (Self.okResponse(req), Data()) }
+        let before = sut.sessionGeneration
+
+        await sut.signOut()
+        #expect(sut.sessionGeneration > before,
+                "sign-out must advance the generation so an in-flight replay aborts before the next account")
+    }
+
+    @MainActor
+    @Test("a sign-out then login advances the generation twice (monotonic)")
+    func sessionGeneration_isMonotonicAcrossSignOutLogin() async throws {
+        let (sut, kc) = await makeSUT(seedAccess: "acc", seedRefresh: "ref",
+                                      seedExpiry: Date().addingTimeInterval(3600))
+        defer { kc.clearAll() }
+        MockURLProtocol.handler = { req in
+            if req.url?.path.hasSuffix("/auth/login") == true {
+                return (Self.okResponse(req), Data(Self.okTokensJSON.utf8))
+            }
+            if req.url?.path.hasSuffix("/auth/me") == true {
+                return (Self.okResponse(req), Data(Self.meJSON.utf8))
+            }
+            return (Self.okResponse(req), Data())   // logout revoke
+        }
+        let start = sut.sessionGeneration
+        await sut.signOut()
+        let afterSignOut = sut.sessionGeneration
+        try await sut.login(email: "carlos@fittracker.dev", password: "test1234")
+        let afterLogin = sut.sessionGeneration
+
+        #expect(afterSignOut > start)
+        #expect(afterLogin > afterSignOut, "each session boundary strictly increases the generation")
+    }
+
     // MARK: - Helpers
 
     private static func okResponse(_ req: URLRequest) -> HTTPURLResponse {
