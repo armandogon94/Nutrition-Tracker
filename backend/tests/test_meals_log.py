@@ -13,12 +13,16 @@ Covers the iOS ``MealService`` contract:
 
 import asyncio
 import uuid
+from datetime import date
 
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
+from app.api.v1.meals import _resolve_product_for_log
 from app.main import app
 from app.models.meal import Meal, MealItem
+from app.models.product import Product
+from app.schemas.meal import MealLogRequest
 
 
 def _log_body(**overrides) -> dict:
@@ -258,3 +262,185 @@ async def test_concurrent_first_logs_same_slot_share_one_meal(
     assert meal_count == 1
     item_count = await db_session.scalar(select(func.count()).select_from(MealItem))
     assert item_count == 5
+
+
+# ---- Product-snapshot concurrency (Codex review-5 P1 incomplete) ----------
+#
+# _resolve_product_for_log() used select-then-insert/flush for a client-supplied
+# product_id. Product.id and Product.barcode (= "log:{id}") are unique, so two
+# concurrent replays carrying the SAME new product_id both miss the read, both
+# try to INSERT the same product, and the loser's flush hit a unique violation
+# that poisoned the session -> 500. Snapshot creation is now upsert-safe.
+
+
+async def test_concurrent_same_new_product_and_client_item_id_converges(
+    auth_token, db_session
+):
+    """Same NEW product_id + same client_item_id, fired concurrently.
+
+    The exact P1 race: every racer would create the same snapshot product AND
+    the same meal item. Must converge on ONE meal item / ONE product with NO 500
+    (no IntegrityError leaking from the product insert).
+    """
+    shared_product_id = str(uuid.uuid4())
+    shared_client_item_id = str(uuid.uuid4())
+    body = _log_body(
+        product_id=shared_product_id,
+        client_item_id=shared_client_item_id,
+    )
+    clients = _concurrent_clients(auth_token, 6)
+    try:
+        responses = await asyncio.gather(
+            *(c.post("/api/v1/meals/log", json=body) for c in clients)
+        )
+    finally:
+        await asyncio.gather(*(c.aclose() for c in clients))
+
+    statuses = [r.status_code for r in responses]
+    assert all(s == 201 for s in statuses), statuses
+
+    # All responses converge on the same single item id.
+    item_ids = {r.json()["items"][0]["id"] for r in responses}
+    assert len(item_ids) == 1
+
+    # Exactly one MealItem, one Meal, and one snapshot Product persisted.
+    item_count = await db_session.scalar(select(func.count()).select_from(MealItem))
+    assert item_count == 1
+    meal_count = await db_session.scalar(select(func.count()).select_from(Meal))
+    assert meal_count == 1
+    product_count = await db_session.scalar(
+        select(func.count())
+        .select_from(Product)
+        .where(Product.id == uuid.UUID(shared_product_id))
+    )
+    assert product_count == 1
+
+
+async def test_concurrent_same_new_product_distinct_items_no_500(
+    auth_token, db_session
+):
+    """Same NEW product_id, DISTINCT client_item_ids, fired concurrently.
+
+    Stresses the product-creation race in isolation: each racer logs a different
+    item but all reference the same not-yet-existing product_id, so they all try
+    to create that one snapshot product at once. The product insert must be
+    conflict-safe (no 500), and all items must point at the single product row.
+    """
+    shared_product_id = str(uuid.uuid4())
+    bodies = [
+        _log_body(
+            product_id=shared_product_id,
+            product_name="Shared Product",
+            client_item_id=str(uuid.uuid4()),  # distinct items
+        )
+        for _ in range(5)
+    ]
+    clients = _concurrent_clients(auth_token, len(bodies))
+    try:
+        responses = await asyncio.gather(
+            *(c.post("/api/v1/meals/log", json=b) for c, b in zip(clients, bodies))
+        )
+    finally:
+        await asyncio.gather(*(c.aclose() for c in clients))
+
+    statuses = [r.status_code for r in responses]
+    assert all(s == 201 for s in statuses), statuses
+
+    # Five distinct items, all pointing at the one shared product.
+    item_count = await db_session.scalar(select(func.count()).select_from(MealItem))
+    assert item_count == 5
+    product_count = await db_session.scalar(
+        select(func.count())
+        .select_from(Product)
+        .where(Product.id == uuid.UUID(shared_product_id))
+    )
+    assert product_count == 1
+
+    item_product_ids = {
+        str(r.json()["items"][-1]["product_id"]) for r in responses
+    }
+    # Note: response items are sorted by created_at; the just-logged item is the
+    # one each racer cares about. They all share the single product id.
+    assert item_product_ids == {shared_product_id}
+
+
+# ---- Deterministic barrier test for the product-snapshot race -------------
+#
+# The HTTP-level concurrency tests above don't *reliably* trigger the product
+# insert race: requests serialize on earlier awaits (the meal ON CONFLICT insert
+# and the existence SELECT), so the two product INSERTs rarely overlap in the
+# window where one is uncommitted and another is issued. The buggy
+# select-then-insert/flush code therefore passed those tests intermittently.
+#
+# This test pins the failure deterministically: two independent sessions are
+# forced (via two asyncio.Barriers) into the exact dangerous interleaving —
+# BOTH read "product absent", THEN both insert. Under the old code the loser's
+# flush raised IntegrityError on Product.id/Product.barcode and poisoned the
+# session; the upsert-safe (ON CONFLICT DO NOTHING + re-select) version converges
+# both on a single shared snapshot row with no error.
+
+
+def _log_request(product_id: str, client_item_id: str) -> MealLogRequest:
+    return MealLogRequest(
+        meal_type="lunch",
+        meal_date=date(2026, 6, 25),
+        product_id=product_id,
+        product_name="Snapshot Food",
+        brand="Generic",
+        servings=2.0,
+        calories=330.0,
+        protein_g=62.0,
+        carbs_g=0.0,
+        fat_g=7.2,
+        client_item_id=client_item_id,
+    )
+
+
+async def test_resolve_product_race_converges_no_integrity_error(setup_db):
+    """Two sessions forced into read-then-insert of the SAME new product_id.
+
+    The barrier interleaving is exactly the one that made the old code 500. The
+    upsert-safe resolver must let BOTH sessions return the single converged
+    snapshot product with no IntegrityError and exactly one Product row.
+    """
+    _engine, session_factory = setup_db
+    shared_product_id = str(uuid.uuid4())
+
+    read_done = asyncio.Barrier(2)  # both confirm "absent" before any insert
+    pre_insert = asyncio.Barrier(2)  # both issue their INSERT together
+
+    async def racer(client_item_id: str) -> tuple[str, str]:
+        data = _log_request(shared_product_id, client_item_id)
+        async with session_factory() as session:
+            # 1. Race the existence read: both must see "absent" first.
+            existing = await session.get(
+                Product, uuid.UUID(shared_product_id)
+            )
+            assert existing is None
+            await read_done.wait()
+            # 2. Now both drive the real resolver (insert-or-conflict path)
+            #    at the same time — the interleaving that broke select+flush.
+            await pre_insert.wait()
+            try:
+                product = await _resolve_product_for_log(session, data)
+                await session.commit()
+                return ("ok", str(product.id))
+            except Exception as exc:  # pragma: no cover - asserted absent below
+                await session.rollback()
+                return ("ERR", type(exc).__name__)
+
+    results = await asyncio.gather(racer(str(uuid.uuid4())), racer(str(uuid.uuid4())))
+
+    # No session was poisoned: both succeeded (no IntegrityError -> no 500).
+    assert all(status == "ok" for status, _ in results), results
+    # Both converged on the single client-supplied snapshot id.
+    assert {value for _, value in results} == {shared_product_id}
+
+    # Exactly one Product row persisted for that id.
+    async with session_factory() as session:
+        count = await session.scalar(
+            select(func.count())
+            .select_from(Product)
+            .where(Product.id == uuid.UUID(shared_product_id))
+        )
+    assert count == 1
