@@ -63,6 +63,16 @@ actor OfflineQueue {
         defaults.removeObject(forKey: storageKey)
     }
 
+    /// Remove every mutation owned by `userId`. Called on sign-out / account
+    /// deletion so a signed-out user's queued writes can never replay under a
+    /// different account (Codex review #4 P0). Crash-safe: it's a single
+    /// atomic `UserDefaults` write of the filtered array — no intermediate
+    /// state where the queue is half-cleared.
+    func removeAll(ownedBy userId: UUID) async {
+        let next = read().filter { $0.ownerId != userId }
+        write(next)
+    }
+
     /// Iterate over queued mutations and let `apply` execute each. On
     /// success the mutation is dequeued; on failure it stays in place
     /// for a future retry. Returns the number of successfully drained
@@ -78,6 +88,36 @@ actor OfflineQueue {
             } catch {
                 // Stop draining on first failure — preserves order and
                 // avoids hammering a flaky backend. Caller decides retry.
+                break
+            }
+        }
+        return drained
+    }
+
+    /// Owner-scoped drain: replay ONLY the mutations owned by `userId`,
+    /// skipping (and leaving in place) any that belong to another account.
+    /// This is the backstop for the cross-user replay blocker (Codex review
+    /// #4 P0): even if a foreign mutation is still in the shared queue, it is
+    /// never handed to `apply` — so it can never be sent under the current
+    /// user's bearer token. Foreign entries stay quarantined for whenever
+    /// their owner signs back in. Among the owner's own mutations, FIFO order
+    /// is preserved and draining stops on the first failure (same retry
+    /// semantics as `drain`). Returns the number successfully drained.
+    @discardableResult
+    func drain(ownedBy userId: UUID,
+               _ apply: @Sendable (PendingMutation) async throws -> Void) async -> Int {
+        var drained = 0
+        for mutation in read() {
+            // Quarantine anything that isn't this user's — skip without
+            // touching it so it remains for its real owner.
+            guard mutation.ownerId == userId else { continue }
+            do {
+                try await apply(mutation)
+                await remove(id: mutation.id)
+                drained += 1
+            } catch {
+                // Stop on the owner's first failure; their remaining
+                // mutations keep their order for the next retry.
                 break
             }
         }

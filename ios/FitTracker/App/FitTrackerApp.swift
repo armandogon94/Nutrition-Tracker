@@ -80,6 +80,13 @@ struct FitTrackerApp: App {
         if let refresher = services.auth as? any TokenRefreshing {
             syncManager.setRefresher(refresher)
         }
+        // Owner-guard for replay: tell SyncManager who is signed in so it only
+        // flushes the current user's queued writes and never replays user A's
+        // offline mutation under user B's token after an account switch (Codex
+        // review #4 P0). Captures the container (a reference type) so the
+        // closure reads the LIVE current user on every drain, not a snapshot.
+        let container = services
+        syncManager.setCurrentUserProvider { container.auth.currentUser?.id }
         syncManager.startObservingConnectivity()
     }
 }

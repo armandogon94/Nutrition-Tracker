@@ -129,6 +129,9 @@ struct SyncManagerTests {
         let reachability = Reachability(autoStart: false)
         reachability.setStatus(.online)
         let sut = SyncManager(api: api, queue: queue, reachability: reachability)
+        // Replay is owner-guarded: register the default test owner so the
+        // defaulted-owner mutation below counts as the current user's.
+        sut.setCurrentUserProvider { PendingMutationTestOwner.shared }
 
         let counter = AtomicCounter()
         MockURLProtocol.handler = { req in
@@ -163,6 +166,7 @@ struct SyncManagerTests {
         let reachability = Reachability(autoStart: false)
         reachability.setStatus(.online)
         let sut = SyncManager(api: api, queue: queue, reachability: reachability)
+        sut.setCurrentUserProvider { PendingMutationTestOwner.shared }
 
         let clientItemId = UUID()
         nonisolated(unsafe) var capturedPath: String?
@@ -221,6 +225,7 @@ struct SyncManagerTests {
         reachability.setStatus(.online)
         let freshQueue = OfflineQueue(storageKey: "q", defaults: UserDefaults(suiteName: suite)!)
         let sut = SyncManager(api: api, queue: freshQueue, reachability: reachability)
+        sut.setCurrentUserProvider { PendingMutationTestOwner.shared }
 
         sut.startObservingConnectivity()   // must kick an immediate drain
 
@@ -257,6 +262,7 @@ struct SyncManagerTests {
         let container = try PersistenceController.makeInMemory().container
         let ctx = ModelContext(container)
         let sut = SyncManager(api: api, queue: queue, reachability: reachability, context: ctx)
+        sut.setCurrentUserProvider { PendingMutationTestOwner.shared }
 
         // Seed a local meal + item flagged pendingSync, matching a queued log.
         let itemId = UUID()
@@ -329,6 +335,7 @@ struct SyncManagerTests {
         let reachability = Reachability(autoStart: false)
         reachability.setStatus(.offline)
         let sut = SyncManager(api: api, queue: queue, reachability: reachability)
+        sut.setCurrentUserProvider { PendingMutationTestOwner.shared }
         sut.startObservingConnectivity()
 
         // Enqueue 2 deletions while offline

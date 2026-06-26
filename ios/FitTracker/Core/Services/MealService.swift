@@ -155,25 +155,40 @@ final class MealService: MealLoggingServiceProtocol {
         // write didn't even persist — so it propagates to the caller.
         try context.save()
 
-        // Fire the backend POST. The `client_item_id` (the snapshot's local
-        // id) makes the write idempotent: a queued retry sends the same id
-        // and the backend returns the existing row instead of duplicating.
+        // Build the durable mutation and ENQUEUE IT BEFORE the network call.
+        // The `client_item_id` (the snapshot's local id) makes the write
+        // idempotent: a queued retry sends the same id and the backend returns
+        // the existing row instead of duplicating. `ownerId` lets SyncManager
+        // owner-guard the replay so it never flushes under another account.
+        //
+        // Ordering matters (Codex review #4 P2 "lost-write window"): if we
+        // only enqueued inside the catch, an app kill between the local save
+        // and the catch would leave a `pendingSync` row with NO queue entry —
+        // a silently lost write. Enqueuing first, then removing on confirmed
+        // success, closes that window. The enqueue is idempotent by id, so the
+        // pre-write + a later replay never produce two entries.
         let dateOnly = Self.dateOnly.string(from: mealDate)
-        let body = LogMealItemRequest(
-            meal_type: mealType.rawValue,
-            meal_date: dateOnly,
-            product_id: product.id.uuidString,
-            product_name: product.name,
+        let payload = LogMealItemPayload(
+            ownerId: userId,
+            clientItemId: snapshot.id,
+            mealType: mealType.rawValue,
+            mealDate: dateOnly,
+            productId: product.id,
+            productName: product.name,
             brand: product.brand,
             servings: servings,
             calories: snapshot.calories,
-            protein_g: snapshot.proteinG,
-            carbs_g: snapshot.carbsG,
-            fat_g: snapshot.fatG,
-            client_item_id: snapshot.id.uuidString
+            proteinG: snapshot.proteinG,
+            carbsG: snapshot.carbsG,
+            fatG: snapshot.fatG
         )
+        await offlineQueue?.enqueue(.logMealItem(payload))
+
         do {
-            let _: MealDTO = try await api.post("/api/v1/meals/log", body: body)
+            let _: MealDTO = try await api.post("/api/v1/meals/log", body: payload.asRequest())
+            // Confirmed by the server: drop the durable entry (no leak) and
+            // clear the local pending flag.
+            await offlineQueue?.remove(id: snapshot.id)
             entity.pendingSync = false
             entity.lastSyncedAt = .now
             // Only clear the parent's flag if every sibling item is synced;
@@ -185,23 +200,10 @@ final class MealService: MealLoggingServiceProtocol {
             try? context.save()
             return MealLogOutcome(item: snapshot, state: .synced)
         } catch {
-            // Backend unreachable / rejected. Leave pendingSync=true and
-            // enqueue a durable mutation so the write is NOT lost — it
-            // replays on reconnect / next launch. Reporting `.pendingSync`
-            // (not throwing) is what lets the UI say "saved locally" honestly.
-            await offlineQueue?.enqueue(.logMealItem(LogMealItemPayload(
-                clientItemId: snapshot.id,
-                mealType: mealType.rawValue,
-                mealDate: dateOnly,
-                productId: product.id,
-                productName: product.name,
-                brand: product.brand,
-                servings: servings,
-                calories: snapshot.calories,
-                proteinG: snapshot.proteinG,
-                carbsG: snapshot.carbsG,
-                fatG: snapshot.fatG
-            )))
+            // Backend unreachable / rejected. The durable mutation is ALREADY
+            // queued (above), so the write is NOT lost — it replays on
+            // reconnect / next launch. Reporting `.pendingSync` (not throwing)
+            // is what lets the UI say "saved locally" honestly.
             return MealLogOutcome(item: snapshot, state: .pendingSync)
         }
     }
@@ -250,16 +252,44 @@ final class MealService: MealLoggingServiceProtocol {
             predicate: #Predicate { $0.id == itemId }
         )
         guard let item = try context.fetch(descriptor).first else { return }
+
+        // Attribute the tombstone to the meal's owner so SyncManager can
+        // owner-guard the replayed delete. Derive it BEFORE deleting (after
+        // delete the relationship is gone). Fall back to a direct meal lookup
+        // if the inverse relationship is somehow nil.
+        let ownerId = item.meal?.userId ?? Self.ownerId(ofMeal: mealId, in: context)
+
+        // Queue a durable tombstone BEFORE the optimistic local delete (Codex
+        // review #4 P2 "lost-write window"): a kill after the local delete but
+        // before enqueue would otherwise lose the deletion entirely, and the
+        // row would silently reappear on the next server read. The by-id
+        // delete route is idempotent, so replaying it is safe even if the row
+        // is already gone server-side. We can only enqueue when we know the
+        // owner; without one we'd risk a replay the guard can never run.
+        if let ownerId {
+            await offlineQueue?.enqueue(.deleteMealItem(DeleteMealItemPayload(ownerId: ownerId, id: itemId)))
+        }
+
         context.delete(item)
         try context.save()
-        // Try the backend delete. On failure, enqueue a durable mutation so
-        // the deletion is replayed on reconnect rather than silently lost —
-        // the by-id delete route is idempotent, so the replay is safe even if
-        // the row was already removed server-side.
+
         do {
             try await api.delete("/api/v1/meals/items/\(itemId.uuidString)")
+            // Confirmed: drop the durable tombstone (no leak).
+            await offlineQueue?.remove(id: itemId)
         } catch {
-            await offlineQueue?.enqueue(.deleteMealItem(DeleteMealItemPayload(id: itemId)))
+            // Backend unreachable / rejected. The tombstone is ALREADY queued
+            // (above), so the deletion replays on reconnect rather than being
+            // silently lost.
         }
+    }
+
+    /// Best-effort lookup of the owning user for a meal id, used as a fallback
+    /// when a meal item's inverse relationship to its parent is nil.
+    private static func ownerId(ofMeal mealId: UUID, in context: ModelContext) -> UUID? {
+        let descriptor = FetchDescriptor<MealEntity>(
+            predicate: #Predicate { $0.id == mealId }
+        )
+        return (try? context.fetch(descriptor).first)?.userId
     }
 }
