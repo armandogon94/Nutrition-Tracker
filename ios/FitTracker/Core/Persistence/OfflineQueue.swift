@@ -14,17 +14,33 @@ actor OfflineQueue {
     private let storageKey: String
     private let defaults: UserDefaults
 
+    /// App-wide durable queue. The producers of failed writes (MealService)
+    /// and the single consumer that replays them (SyncManager, started in
+    /// FitTrackerApp) both default to THIS instance, so a failed optimistic
+    /// write and its eventual replay always travel through one queue. Tests
+    /// build their own isolated instances with a per-test storage key.
+    static let shared = OfflineQueue()
+
     init(storageKey: String = "com.armandointeligencia.FitTracker.OfflineQueue.v1",
          defaults: UserDefaults = .standard) {
         self.storageKey = storageKey
         self.defaults = defaults
     }
 
-    /// Append a mutation. O(n) due to UserDefaults serialization but n is
-    /// tiny in v1 (queue empties fast under good network).
+    /// Append a mutation, deduped by `id`. If a mutation with the same id is
+    /// already queued (e.g. the user re-logs the same item, or a failed
+    /// optimistic write is enqueued twice) the newer payload REPLACES the
+    /// older one in place, preserving its queue position. This keeps the
+    /// queue itself idempotent so a single backend write is never sent twice
+    /// from two distinct entries — complementing the backend's own
+    /// `client_item_id` dedup. O(n) but n is tiny in v1.
     func enqueue(_ mutation: PendingMutation) async {
         var current = read()
-        current.append(mutation)
+        if let i = current.firstIndex(where: { $0.id == mutation.id }) {
+            current[i] = mutation
+        } else {
+            current.append(mutation)
+        }
         write(current)
     }
 

@@ -16,14 +16,13 @@ struct ScanView: View {
     @Environment(\.appTheme) private var theme
     @Environment(\.dismiss) private var dismiss
     @Environment(MockServiceContainer.self) private var services
-    @Environment(\.modelContext) private var modelContext
 
     @State private var scannedBarcode: String? = nil
     @State private var lookupState: ProductLookupState? = nil
     @State private var showManualSheet = false
     @State private var showPhotoSheet = false
     @State private var pendingMealType: MealType = .snack
-    @State private var statusBanner: String? = nil
+    @State private var statusBanner: BannerState? = nil
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -135,14 +134,29 @@ struct ScanView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18))
     }
 
-    private func bannerView(_ message: String) -> some View {
-        Text(verbatim: message)
-            .font(theme.font.caption)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 16).padding(.vertical, 10)
-            .background(theme.accent.opacity(0.95), in: Capsule())
-            .padding(.bottom, 96)
-            .transition(.opacity)
+    private func bannerView(_ banner: BannerState) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: banner.kind.symbol)
+                .font(.system(size: 13, weight: .semibold))
+            Text(verbatim: banner.text)
+                .font(theme.font.caption)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16).padding(.vertical, 10)
+        .background(bannerColor(for: banner.kind).opacity(0.95), in: Capsule())
+        .padding(.bottom, 96)
+        .transition(.opacity)
+    }
+
+    /// Maps a banner kind to a theme colour: positive for a confirmed sync, a
+    /// secondary accent for "pending" (it's fine, just not done yet), and the
+    /// theme's negative colour for a real failure.
+    private func bannerColor(for kind: BannerKind) -> Color {
+        switch kind {
+        case .success: return theme.positive
+        case .pending: return theme.accentSecondary
+        case .failure: return theme.negative
+        }
     }
 
     // MARK: - Flow
@@ -166,34 +180,72 @@ struct ScanView: View {
     @MainActor
     private func logProduct(_ product: Product, servings: Double, mealType: MealType) async {
         guard let userId = services.auth.currentUser?.id else { return }
-        let mealService = MealService(api: APIClient(tokenProvider: KeychainTokenStore.shared),
-                                       context: modelContext)
-        var loggedItem: MealItem?
-        do {
-            loggedItem = try await mealService.logItem(
-                product: product,
-                servings: servings,
-                mealType: mealType,
-                mealDate: Date(),
-                userId: userId
-            )
-            withAnimation { statusBanner = String(localized: "meals_log_saved_offline") }
-        } catch {
-            // Optimistic write succeeded locally; banner notes pending sync.
-            withAnimation { statusBanner = String(localized: "meals_log_saved_offline") }
+        // Use the injected, app-wide meal service (one shared authenticated
+        // APIClient + the live SwiftData store + the shared offline queue)
+        // rather than building an ad-hoc MealService here — an ad-hoc one
+        // bypasses 401-refresh and never feeds the durable offline queue.
+        let outcome = await logViaContainer(product, servings: servings,
+                                            mealType: mealType, userId: userId)
+
+        // Honest UX: distinguish a confirmed server write from a durable
+        // local-only save from an outright failure — never a blanket success.
+        switch outcome {
+        case .synced:
+            withAnimation { statusBanner = .init(text: String(localized: "meals_log_saved_synced"),
+                                                 kind: .success) }
+        case .pending:
+            withAnimation { statusBanner = .init(text: String(localized: "meals_log_saved_offline"),
+                                                 kind: .pending) }
+        case .failed:
+            withAnimation { statusBanner = .init(text: String(localized: "meals_log_failed"),
+                                                 kind: .failure) }
         }
-        // Mirror to Apple Health (best-effort; HealthKit failure must
-        // never block meal-log UX). HealthKitService dedupes on its
-        // ExternalUUID so re-runs are safe.
-        if let item = loggedItem {
+
+        // Mirror to Apple Health only when something was actually saved
+        // (synced or pending). Best-effort; HealthKit failure must never
+        // block meal-log UX. HealthKitService dedupes on its ExternalUUID.
+        if let item = outcome.item {
             Task { @MainActor in
                 _ = try? await HealthKitService.shared.writeMealEntry(item)
             }
         }
+        // A failure stays on screen a touch longer so the user notices it.
+        let dismissAfter: UInt64 = outcome.isFailure ? 4_000_000_000 : 2_500_000_000
         Task {
-            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            try? await Task.sleep(nanoseconds: dismissAfter)
             withAnimation { statusBanner = nil }
         }
+    }
+
+    /// Logs through `services.meals`, mapping the result to a UI-facing
+    /// outcome. Prefers the concrete `MealService` so we can report the true
+    /// synced-vs-pending state; falls back to the protocol surface (mocks /
+    /// previews), where a successful return is treated as saved-pending and a
+    /// throw as a failure.
+    @MainActor
+    private func logViaContainer(_ product: Product, servings: Double,
+                                 mealType: MealType, userId: UUID) async -> LogOutcome {
+        if let real = services.meals as? MealService {
+            do {
+                let res = try await real.logItemReturningOutcome(
+                    product: product, servings: servings,
+                    mealType: mealType, mealDate: Date(), userId: userId)
+                return res.state == .synced ? .synced(res.item) : .pending(res.item)
+            } catch {
+                return .failed   // the LOCAL write failed — genuinely lost
+            }
+        }
+        if let logging = services.meals as? any MealLoggingServiceProtocol {
+            do {
+                let item = try await logging.logItem(
+                    product: product, servings: servings,
+                    mealType: mealType, mealDate: Date(), userId: userId)
+                return .pending(item)   // can't tell synced from pending here
+            } catch {
+                return .failed
+            }
+        }
+        return .failed
     }
 
     // MARK: - Sheet binding
@@ -206,6 +258,50 @@ struct ScanView: View {
                 if newValue == nil { lookupState = nil }
             }
         )
+    }
+}
+
+// MARK: - Log outcome + banner state
+
+/// The user-facing result of a meal-log attempt, derived from MealService's
+/// sync state. Drives an HONEST banner: a confirmed server write, a durable
+/// local-only save (will replay), or a genuine save failure — never a
+/// blanket success (Codex finding #4).
+enum LogOutcome {
+    case synced(MealItem)    // backend confirmed
+    case pending(MealItem)   // saved locally + durably queued; will sync later
+    case failed              // the local write itself failed — data lost
+
+    /// The inserted item when something was actually saved (synced/pending),
+    /// used to mirror the entry to HealthKit. `nil` on failure.
+    var item: MealItem? {
+        switch self {
+        case .synced(let i), .pending(let i): return i
+        case .failed: return nil
+        }
+    }
+
+    var isFailure: Bool { if case .failed = self { return true } else { return false } }
+}
+
+/// What a scan-status banner shows + how it's styled.
+struct BannerState: Equatable {
+    let text: String
+    let kind: BannerKind
+}
+
+enum BannerKind: Equatable {
+    case success   // synced to the backend
+    case pending   // saved locally, pending sync
+    case failure   // failed to save
+
+    /// SF Symbol that reinforces the meaning at a glance.
+    var symbol: String {
+        switch self {
+        case .success: return "checkmark.circle.fill"
+        case .pending: return "arrow.triangle.2.circlepath"   // "will sync"
+        case .failure: return "exclamationmark.triangle.fill"
+        }
     }
 }
 

@@ -23,7 +23,11 @@ struct MealServiceTests {
                             session: session)
         let container = try PersistenceController.makeInMemory().container
         let context = ModelContext(container)
-        let service = MealService(api: api, context: context)
+        // Isolated per-test queue so happy-path tests never touch the app-wide
+        // `OfflineQueue.shared` (would leak mutations across tests).
+        let queue = OfflineQueue(storageKey: "q",
+                                 defaults: UserDefaults(suiteName: "test.meal.\(UUID().uuidString)")!)
+        let service = MealService(api: api, context: context, offlineQueue: queue)
         return (service, context)
     }
 
@@ -134,9 +138,17 @@ struct MealServiceTests {
     }
 
     @MainActor
-    @Test("logItem keeps the row but flags it pendingSync on backend error")
-    func logItem_revertsOnApiError() async throws {
-        let (sut, ctx) = try makeSUT()
+    @Test("logItem keeps the row pendingSync AND enqueues a durable mutation on backend error")
+    func logItem_enqueuesOnApiError() async throws {
+        // A dedicated queue we can inspect, wired into the SUT.
+        let suite = "test.meal.\(UUID().uuidString)"
+        let queue = OfflineQueue(storageKey: "q", defaults: UserDefaults(suiteName: suite)!)
+        let session = MockURLProtocol.makeSession()
+        let api = APIClient(baseURL: URL(string: "http://test.local")!,
+                            tokenProvider: nil, session: session)
+        let container = try PersistenceController.makeInMemory().container
+        let ctx = ModelContext(container)
+        let sut = MealService(api: api, context: ctx, offlineQueue: queue)
 
         MockURLProtocol.handler = { req in
             let resp = HTTPURLResponse(url: req.url!, statusCode: 500,
@@ -148,24 +160,90 @@ struct MealServiceTests {
         let userId = UUID()
         let product = MockData.products.first!
 
-        // The call surfaces an error to the caller, but the optimistic row
-        // remains in SwiftData with pendingSync=true so the offline queue
-        // can retry later. We do NOT roll back — losing user input is
-        // worse than a stale flag.
-        await #expect(throws: (any Error).self) {
-            _ = try await sut.logItem(
-                product: product,
-                servings: 1,
-                mealType: .lunch,
-                mealDate: Date(),
-                userId: userId
-            )
-        }
+        // The optimistic write is durable now: a backend failure does NOT
+        // throw (data is enqueued, not lost). We do NOT roll back the local
+        // row — losing user input is worse than a stale flag.
+        let outcome = try await sut.logItemReturningOutcome(
+            product: product, servings: 1, mealType: .lunch,
+            mealDate: Date(), userId: userId
+        )
+        #expect(outcome.state == .pendingSync,
+                "backend failure must report pendingSync, not a blanket success")
 
         let stored = try ctx.fetch(FetchDescriptor<MealItemEntity>())
         #expect(stored.count == 1, "row remains after API failure")
         #expect(stored.first?.pendingSync == true,
                 "API failure must leave pendingSync=true so retry queue picks it up")
+
+        // The durable mutation must be queued, carrying this item's id as the
+        // client_item_id so its eventual replay is idempotent.
+        let queued = await queue.peekAll()
+        #expect(queued.count == 1, "a failed write must enqueue a durable mutation")
+        if case .logMealItem(let p) = queued.first {
+            #expect(p.clientItemId == stored.first?.id,
+                    "queued mutation must carry the local item id as client_item_id")
+        } else {
+            Issue.record("expected a .logMealItem mutation in the queue")
+        }
+    }
+
+    @MainActor
+    @Test("logItem reports .synced on a successful backend write")
+    func logItem_reportsSyncedOnSuccess() async throws {
+        let (sut, _) = try makeSUT()
+        MockURLProtocol.handler = { req in
+            let resp = HTTPURLResponse(url: req.url!, statusCode: 201,
+                                       httpVersion: "HTTP/1.1",
+                                       headerFields: ["Content-Type": "application/json"])!
+            return (resp, Data(Self.serverItemJSON.utf8))
+        }
+        let outcome = try await sut.logItemReturningOutcome(
+            product: MockData.products.first!, servings: 1, mealType: .breakfast,
+            mealDate: Date(timeIntervalSince1970: 1_735_718_400),
+            userId: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!
+        )
+        #expect(outcome.state == .synced, "a 2xx backend write must report .synced")
+    }
+
+    @MainActor
+    @Test("deleteItem enqueues a durable delete on backend error")
+    func deleteItem_enqueuesOnApiError() async throws {
+        let suite = "test.meal.\(UUID().uuidString)"
+        let queue = OfflineQueue(storageKey: "q", defaults: UserDefaults(suiteName: suite)!)
+        let session = MockURLProtocol.makeSession()
+        let api = APIClient(baseURL: URL(string: "http://test.local")!,
+                            tokenProvider: nil, session: session)
+        let container = try PersistenceController.makeInMemory().container
+        let ctx = ModelContext(container)
+        let sut = MealService(api: api, context: ctx, offlineQueue: queue)
+
+        // Seed an item to delete.
+        let meal = MealEntity(id: UUID(), userId: UUID(),
+                              mealType: MealType.lunch.rawValue, mealDate: .now,
+                              pendingSync: false, lastSyncedAt: .now)
+        let itemId = UUID()
+        let item = MealItemEntity(id: itemId, productId: UUID(),
+                                  productName: "Pan", brand: nil, servings: 1,
+                                  calories: 80, proteinG: 3, carbsG: 15, fatG: 1)
+        meal.items = [item]
+        ctx.insert(meal)
+        try ctx.save()
+
+        MockURLProtocol.handler = { req in
+            (HTTPURLResponse(url: req.url!, statusCode: 500, httpVersion: "HTTP/1.1", headerFields: nil)!, Data())
+        }
+
+        try await sut.deleteItem(itemId, fromMeal: meal.id)
+
+        // Local delete still happened (optimistic), and a durable delete was queued.
+        #expect(try ctx.fetch(FetchDescriptor<MealItemEntity>()).isEmpty,
+                "local delete is optimistic and must persist")
+        let queued = await queue.peekAll()
+        #expect(queued.count == 1)
+        #expect(queued.first?.id == itemId, "queued delete must target the item id")
+        if case .deleteMealItem = queued.first {} else {
+            Issue.record("expected a .deleteMealItem mutation")
+        }
     }
 
     @MainActor

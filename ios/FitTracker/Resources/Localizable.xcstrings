@@ -1,6 +1,24 @@
 {
   "sourceLanguage": "es",
   "strings": {
+    "common.loading": {
+      "comment": "Generic loading indicator label.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando…"
+          }
+        }
+      }
+    },
     "common.tryAgain": {
       "comment": "Generic retry button.",
       "extractionState": "manual",
@@ -664,6 +682,683 @@
         }
       }
     },
+    "history.calendar.hasWorkout": {
+      "comment": "Accessibility suffix for a calendar day with a session.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "workout logged"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "entrenamiento registrado"
+          }
+        }
+      }
+    },
+    "history.calendar.nextMonth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next month"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mes siguiente"
+          }
+        }
+      }
+    },
+    "history.calendar.noSessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No sessions on this day"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin sesiones este día"
+          }
+        }
+      }
+    },
+    "history.calendar.previousMonth": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Previous month"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mes anterior"
+          }
+        }
+      }
+    },
+    "history.chart.axis.muscle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Muscle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Músculo"
+          }
+        }
+      }
+    },
+    "history.chart.axis.volume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volumen"
+          }
+        }
+      }
+    },
+    "history.chart.axis.week": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Week"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semana"
+          }
+        }
+      }
+    },
+    "history.chart.muscleDistribution": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MUSCLE DISTRIBUTION"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DISTRIBUCIÓN POR MÚSCULO"
+          }
+        }
+      }
+    },
+    "history.chart.noData": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No data yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin datos aún"
+          }
+        }
+      }
+    },
+    "history.chart.weeklyVolume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WEEKLY VOLUME"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VOLUMEN SEMANAL"
+          }
+        }
+      }
+    },
+    "history.exercise.unknown": {
+      "comment": "Fallback name when an exercise can't be resolved.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exercise"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ejercicio"
+          }
+        }
+      }
+    },
+    "history.export": {
+      "comment": "Toolbar button that exports workout history as CSV.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Exportar"
+          }
+        }
+      }
+    },
+    "history.pr.badge": {
+      "comment": "Accessibility label for the PR trophy badge.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Personal record"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Récord personal"
+          }
+        }
+      }
+    },
+    "history.pr.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No records yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no tienes records"
+          }
+        }
+      }
+    },
+    "history.pr.sort": {
+      "comment": "Accessibility label for the PR sort picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sort"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ordenar"
+          }
+        }
+      }
+    },
+    "history.pr.sort.date": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Date"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fecha"
+          }
+        }
+      }
+    },
+    "history.pr.sort.name": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre"
+          }
+        }
+      }
+    },
+    "history.pr.sort.weight": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weight"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peso"
+          }
+        }
+      }
+    },
+    "history.pr.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PERSONAL RECORDS"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRs PERSONALES"
+          }
+        }
+      }
+    },
+    "history.progression.axis.date": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Date"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fecha"
+          }
+        }
+      }
+    },
+    "history.progression.axis.oneRM": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimated 1RM"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1RM estimado"
+          }
+        }
+      }
+    },
+    "history.progression.axisLabel": {
+      "comment": "Accessibility label for a progression sparkline.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ progression"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progresión de %@"
+          }
+        }
+      }
+    },
+    "history.progression.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strength progression"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progresión de fuerza"
+          }
+        }
+      }
+    },
+    "history.progression.value": {
+      "comment": "Accessibility value for a progression sparkline.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current estimated 1RM %lld kg"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1RM estimado actual %lld kg"
+          }
+        }
+      }
+    },
+    "history.section": {
+      "comment": "Accessibility label for the history section picker.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Section"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sección"
+          }
+        }
+      }
+    },
+    "history.section.analytics": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analytics"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Análisis"
+          }
+        }
+      }
+    },
+    "history.section.calendar": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Calendario"
+          }
+        }
+      }
+    },
+    "history.section.records": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Records"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Records"
+          }
+        }
+      }
+    },
+    "history.session.date": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Date"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fecha"
+          }
+        }
+      }
+    },
+    "history.session.duration": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duration"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duración"
+          }
+        }
+      }
+    },
+    "history.session.repsSuffix": {
+      "comment": "Suffix after a rep count.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "reps"
+          }
+        }
+      }
+    },
+    "history.session.setsSuffix": {
+      "comment": "Suffix after a set count, e.g. '5 series'.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "sets"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "series"
+          }
+        }
+      }
+    },
+    "history.set.number": {
+      "comment": "Accessibility label for a single set number.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Set %lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Serie %lld"
+          }
+        }
+      }
+    },
+    "history.stat.prs": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PRs"
+          }
+        }
+      }
+    },
+    "history.stat.sessions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesiones"
+          }
+        }
+      }
+    },
+    "history.stat.volume": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volume kg"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volumen kg"
+          }
+        }
+      }
+    },
+    "history.title": {
+      "comment": "Title of the History/Progress tab.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progress"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Progreso"
+          }
+        }
+      }
+    },
+    "history.unit.kg": {
+      "comment": "Kilogram unit, spoken in accessibility labels.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kg"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kg"
+          }
+        }
+      }
+    },
+    "history.weight.bodyweight": {
+      "comment": "Shown for a set logged with no external weight.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bodyweight"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Peso corporal"
+          }
+        }
+      }
+    },
     "home.tdee.fromHealth": {
       "comment": "Hint shown when the TDEE estimate was refined using a recent Apple Health bodyweight sample.",
       "extractionState": "manual",
@@ -768,6 +1463,244 @@
         }
       }
     },
+    "mealplan.add": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agregar"
+          }
+        }
+      }
+    },
+    "mealplan.addItem": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Add food"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agregar alimento"
+          }
+        }
+      }
+    },
+    "mealplan.createPlan": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create plan"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crear plan"
+          }
+        }
+      }
+    },
+    "mealplan.empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Empty"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vacío"
+          }
+        }
+      }
+    },
+    "mealplan.emptyState.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create a plan for this week and assign meals to each day."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Crea un plan para esta semana y asigna comidas a cada día."
+          }
+        }
+      }
+    },
+    "mealplan.emptyState.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No plan yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún no hay plan"
+          }
+        }
+      }
+    },
+    "mealplan.generateList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generate shopping list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Generar lista del super"
+          }
+        }
+      }
+    },
+    "mealplan.quantity": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quantity"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cantidad"
+          }
+        }
+      }
+    },
+    "mealplan.remove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar"
+          }
+        }
+      }
+    },
+    "mealplan.searchFood": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search food"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar alimento"
+          }
+        }
+      }
+    },
+    "mealplan.servings": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Porciones"
+          }
+        }
+      }
+    },
+    "mealplan.shoppingList": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shopping list"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lista del super"
+          }
+        }
+      }
+    },
+    "mealplan.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Weekly plan"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan semanal"
+          }
+        }
+      }
+    },
+    "meals_log_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't save · try again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo guardar · inténtalo de nuevo"
+          }
+        }
+      }
+    },
     "meals_log_meal_fab": {
       "extractionState": "manual",
       "localizations": {
@@ -798,6 +1731,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Guardado localmente · se sincronizará pronto"
+          }
+        }
+      }
+    },
+    "meals_log_saved_synced": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saved"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guardado"
           }
         }
       }
@@ -1602,272 +2552,140 @@
         }
       }
     },
-    "workout.endWorkout": {
-      "comment": "Toolbar button to finish the active workout session.",
+    "shopping.check": {
+      "comment": "Swipe action label to mark a shopping-list item as bought.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finish"
+            "value": "Check"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Terminar"
+            "value": "Marcar"
           }
         }
       }
     },
-    "workout.endWorkout.confirm.title": {
-      "comment": "Confirmation dialog title when ending a workout.",
+    "shopping.clearChecked": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Finish workout?"
+            "value": "Clear checked"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¿Terminar entrenamiento?"
+            "value": "Borrar marcados"
           }
         }
       }
     },
-    "workout.endWorkout.confirm.message": {
-      "comment": "Confirmation dialog body when ending a workout.",
+    "shopping.empty.message": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Your session will be saved and written to Apple Health."
+            "value": "Generate a list from your weekly plan to see grouped ingredients."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tu sesión se guardará y se registrará en Salud de Apple."
+            "value": "Genera una lista desde tu plan semanal para ver los ingredientes agrupados."
           }
         }
       }
     },
-    "workout.sessionComplete": {
-      "comment": "Header shown after all exercises are done.",
+    "shopping.empty.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Workout complete"
+            "value": "No list yet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entrenamiento completo"
+            "value": "Aún no hay lista"
           }
         }
       }
     },
-    "workout.exerciseProgress": {
-      "comment": "Eyebrow above the current exercise. %1$lld = current, %2$lld = total.",
+    "shopping.itemsRemaining": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "EXERCISE %1$lld / %2$lld"
+            "value": "%lld of %lld remaining"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "EJERCICIO %1$lld / %2$lld"
+            "value": "%lld de %lld pendientes"
           }
         }
       }
     },
-    "workout.setOfTarget": {
-      "comment": "Set counter. %1$lld = current set, %2$lld = target sets.",
+    "shopping.regenerate": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set %1$lld of %2$lld"
+            "value": "Regenerate"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Set %1$lld de %2$lld"
+            "value": "Regenerar"
           }
         }
       }
     },
-    "workout.weightKg": {
-      "comment": "Label for the weight input field (kilograms).",
+    "shopping.title": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Weight (kg)"
+            "value": "Shopping list"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Peso (kg)"
+            "value": "Lista del super"
           }
         }
       }
     },
-    "workout.reps": {
-      "comment": "Label for the reps input field.",
+    "shopping.uncheck": {
+      "comment": "Swipe action label to unmark a checked shopping-list item.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reps"
+            "value": "Uncheck"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reps"
-          }
-        }
-      }
-    },
-    "workout.setComplete": {
-      "comment": "Primary button to log the current set.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set complete"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set completo"
-          }
-        }
-      }
-    },
-    "workout.loggedSets": {
-      "comment": "Section header listing sets logged so far for the current exercise.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "LOGGED SETS"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SETS REGISTRADOS"
-          }
-        }
-      }
-    },
-    "workout.noSetsYet": {
-      "comment": "Placeholder when no sets have been logged for the current exercise.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "None yet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aún ninguno"
-          }
-        }
-      }
-    },
-    "workout.setLabel": {
-      "comment": "Row label for a logged set. %lld = set number.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set %lld"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Set %lld"
-          }
-        }
-      }
-    },
-    "workout.nextExercise": {
-      "comment": "Button advancing to the next exercise in the session.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next exercise"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Siguiente ejercicio"
-          }
-        }
-      }
-    },
-    "workout.rest": {
-      "comment": "Eyebrow label on the rest timer screen.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "REST"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "DESCANSO"
-          }
-        }
-      }
-    },
-    "workout.skip": {
-      "comment": "Button to skip the rest timer.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Skip"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Saltar"
+            "value": "Desmarcar"
           }
         }
       }
@@ -1890,20 +2708,164 @@
         }
       }
     },
-    "workout.pr.title": {
-      "comment": "Headline of the personal-record celebration overlay.",
+    "workout.endWorkout": {
+      "comment": "Toolbar button to finish the active workout session.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New PR!"
+            "value": "Finish"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "¡Nuevo récord!"
+            "value": "Terminar"
+          }
+        }
+      }
+    },
+    "workout.endWorkout.confirm.message": {
+      "comment": "Confirmation dialog body when ending a workout.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your session will be saved and written to Apple Health."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu sesión se guardará y se registrará en Salud de Apple."
+          }
+        }
+      }
+    },
+    "workout.endWorkout.confirm.title": {
+      "comment": "Confirmation dialog title when ending a workout.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finish workout?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Terminar entrenamiento?"
+          }
+        }
+      }
+    },
+    "workout.exerciseProgress": {
+      "comment": "Eyebrow above the current exercise. %1$lld = current, %2$lld = total.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EXERCISE %1$lld / %2$lld"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EJERCICIO %1$lld / %2$lld"
+          }
+        }
+      }
+    },
+    "workout.liveActivity.rest": {
+      "comment": "Short Live Activity label for the rest timer.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rest"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descanso"
+          }
+        }
+      }
+    },
+    "workout.liveActivity.restingOn": {
+      "comment": "Live Activity label. %@ = exercise name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resting · %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Descanso · %@"
+          }
+        }
+      }
+    },
+    "workout.loggedSets": {
+      "comment": "Section header listing sets logged so far for the current exercise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LOGGED SETS"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SETS REGISTRADOS"
+          }
+        }
+      }
+    },
+    "workout.nextExercise": {
+      "comment": "Button advancing to the next exercise in the session.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Next exercise"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Siguiente ejercicio"
+          }
+        }
+      }
+    },
+    "workout.noSetsYet": {
+      "comment": "Placeholder when no sets have been logged for the current exercise.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aún ninguno"
           }
         }
       }
@@ -1926,20 +2888,56 @@
         }
       }
     },
-    "workout.restOver.title": {
-      "comment": "Local notification title when the rest timer ends.",
+    "workout.pr.title": {
+      "comment": "Headline of the personal-record celebration overlay.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rest over"
+            "value": "New PR!"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descanso terminado"
+            "value": "¡Nuevo récord!"
+          }
+        }
+      }
+    },
+    "workout.reps": {
+      "comment": "Label for the reps input field.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reps"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reps"
+          }
+        }
+      }
+    },
+    "workout.rest": {
+      "comment": "Eyebrow label on the rest timer screen.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "REST"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DESCANSO"
           }
         }
       }
@@ -1980,616 +2978,62 @@
         }
       }
     },
-    "workout.liveActivity.restingOn": {
-      "comment": "Live Activity label. %@ = exercise name.",
+    "workout.restOver.title": {
+      "comment": "Local notification title when the rest timer ends.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Resting · %@"
+            "value": "Rest over"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descanso · %@"
+            "value": "Descanso terminado"
           }
         }
       }
     },
-    "workout.liveActivity.rest": {
-      "comment": "Short Live Activity label for the rest timer.",
+    "workout.sessionComplete": {
+      "comment": "Header shown after all exercises are done.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rest"
+            "value": "Workout complete"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Descanso"
+            "value": "Entrenamiento completo"
           }
         }
       }
     },
-    "common.loading": {
-      "comment": "Generic loading indicator label.",
+    "workout.setComplete": {
+      "comment": "Primary button to log the current set.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Loading…"
+            "value": "Set complete"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cargando…"
+            "value": "Set completo"
           }
         }
       }
     },
-    "history.calendar.hasWorkout": {
-      "comment": "Accessibility suffix for a calendar day with a session.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "workout logged"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "entrenamiento registrado"
-          }
-        }
-      }
-    },
-    "history.calendar.nextMonth": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Next month"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mes siguiente"
-          }
-        }
-      }
-    },
-    "history.calendar.noSessions": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No sessions on this day"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sin sesiones este día"
-          }
-        }
-      }
-    },
-    "history.calendar.previousMonth": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Previous month"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mes anterior"
-          }
-        }
-      }
-    },
-    "history.chart.axis.muscle": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Muscle"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Músculo"
-          }
-        }
-      }
-    },
-    "history.chart.axis.volume": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Volume"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Volumen"
-          }
-        }
-      }
-    },
-    "history.chart.axis.week": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Week"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Semana"
-          }
-        }
-      }
-    },
-    "history.chart.muscleDistribution": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "MUSCLE DISTRIBUTION"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "DISTRIBUCIÓN POR MÚSCULO"
-          }
-        }
-      }
-    },
-    "history.chart.noData": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No data yet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sin datos aún"
-          }
-        }
-      }
-    },
-    "history.chart.weeklyVolume": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "WEEKLY VOLUME"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "VOLUMEN SEMANAL"
-          }
-        }
-      }
-    },
-    "history.exercise.unknown": {
-      "comment": "Fallback name when an exercise can't be resolved.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Exercise"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ejercicio"
-          }
-        }
-      }
-    },
-    "history.export": {
-      "comment": "Toolbar button that exports workout history as CSV.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Export"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Exportar"
-          }
-        }
-      }
-    },
-    "history.pr.badge": {
-      "comment": "Accessibility label for the PR trophy badge.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Personal record"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Récord personal"
-          }
-        }
-      }
-    },
-    "history.pr.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No records yet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aún no tienes records"
-          }
-        }
-      }
-    },
-    "history.pr.sort": {
-      "comment": "Accessibility label for the PR sort picker.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sort"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Ordenar"
-          }
-        }
-      }
-    },
-    "history.pr.sort.date": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Date"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fecha"
-          }
-        }
-      }
-    },
-    "history.pr.sort.name": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Name"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Nombre"
-          }
-        }
-      }
-    },
-    "history.pr.sort.weight": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Weight"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Peso"
-          }
-        }
-      }
-    },
-    "history.pr.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PERSONAL RECORDS"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PRs PERSONALES"
-          }
-        }
-      }
-    },
-    "history.progression.axis.date": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Date"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fecha"
-          }
-        }
-      }
-    },
-    "history.progression.axis.oneRM": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Estimated 1RM"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1RM estimado"
-          }
-        }
-      }
-    },
-    "history.progression.axisLabel": {
-      "comment": "Accessibility label for a progression sparkline.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%@ progression"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Progresión de %@"
-          }
-        }
-      }
-    },
-    "history.progression.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Strength progression"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Progresión de fuerza"
-          }
-        }
-      }
-    },
-    "history.progression.value": {
-      "comment": "Accessibility value for a progression sparkline.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Current estimated 1RM %lld kg"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "1RM estimado actual %lld kg"
-          }
-        }
-      }
-    },
-    "history.section": {
-      "comment": "Accessibility label for the history section picker.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Section"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sección"
-          }
-        }
-      }
-    },
-    "history.section.analytics": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Analytics"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Análisis"
-          }
-        }
-      }
-    },
-    "history.section.calendar": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calendar"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Calendario"
-          }
-        }
-      }
-    },
-    "history.section.records": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Records"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Records"
-          }
-        }
-      }
-    },
-    "history.session.date": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Date"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Fecha"
-          }
-        }
-      }
-    },
-    "history.session.duration": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duration"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Duración"
-          }
-        }
-      }
-    },
-    "history.session.repsSuffix": {
-      "comment": "Suffix after a rep count.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "reps"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "reps"
-          }
-        }
-      }
-    },
-    "history.session.setsSuffix": {
-      "comment": "Suffix after a set count, e.g. '5 series'.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "sets"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "series"
-          }
-        }
-      }
-    },
-    "history.set.number": {
-      "comment": "Accessibility label for a single set number.",
+    "workout.setLabel": {
+      "comment": "Row label for a logged set. %lld = set number.",
       "extractionState": "manual",
       "localizations": {
         "en": {
@@ -2601,471 +3045,61 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Serie %lld"
+            "value": "Set %lld"
           }
         }
       }
     },
-    "history.stat.prs": {
+    "workout.setOfTarget": {
+      "comment": "Set counter. %1$lld = current set, %2$lld = target sets.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "PRs"
+            "value": "Set %1$lld of %2$lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "PRs"
+            "value": "Set %1$lld de %2$lld"
           }
         }
       }
     },
-    "history.stat.sessions": {
+    "workout.skip": {
+      "comment": "Button to skip the rest timer.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessions"
+            "value": "Skip"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sesiones"
+            "value": "Saltar"
           }
         }
       }
     },
-    "history.stat.volume": {
+    "workout.weightKg": {
+      "comment": "Label for the weight input field (kilograms).",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Volume kg"
+            "value": "Weight (kg)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Volumen kg"
-          }
-        }
-      }
-    },
-    "history.title": {
-      "comment": "Title of the History/Progress tab.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Progress"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Progreso"
-          }
-        }
-      }
-    },
-    "history.unit.kg": {
-      "comment": "Kilogram unit, spoken in accessibility labels.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "kg"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "kg"
-          }
-        }
-      }
-    },
-    "history.weight.bodyweight": {
-      "comment": "Shown for a set logged with no external weight.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bodyweight"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Peso corporal"
-          }
-        }
-      }
-    },
-    "mealplan.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Weekly plan"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Plan semanal"
-          }
-        }
-      }
-    },
-    "mealplan.shoppingList": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shopping list"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lista del super"
-          }
-        }
-      }
-    },
-    "mealplan.addItem": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add food"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agregar alimento"
-          }
-        }
-      }
-    },
-    "mealplan.empty": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Empty"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Vacío"
-          }
-        }
-      }
-    },
-    "mealplan.emptyState.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No plan yet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aún no hay plan"
-          }
-        }
-      }
-    },
-    "mealplan.emptyState.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Create a plan for this week and assign meals to each day."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crea un plan para esta semana y asigna comidas a cada día."
-          }
-        }
-      }
-    },
-    "mealplan.createPlan": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Create plan"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Crear plan"
-          }
-        }
-      }
-    },
-    "mealplan.servings": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Servings"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Porciones"
-          }
-        }
-      }
-    },
-    "mealplan.quantity": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Quantity"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Cantidad"
-          }
-        }
-      }
-    },
-    "mealplan.searchFood": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Search food"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Buscar alimento"
-          }
-        }
-      }
-    },
-    "mealplan.generateList": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Generate shopping list"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Generar lista del super"
-          }
-        }
-      }
-    },
-    "mealplan.add": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Add"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Agregar"
-          }
-        }
-      }
-    },
-    "mealplan.remove": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Remove"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Eliminar"
-          }
-        }
-      }
-    },
-    "shopping.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Shopping list"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Lista del super"
-          }
-        }
-      }
-    },
-    "shopping.empty.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "No list yet"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Aún no hay lista"
-          }
-        }
-      }
-    },
-    "shopping.empty.message": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Generate a list from your weekly plan to see grouped ingredients."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Genera una lista desde tu plan semanal para ver los ingredientes agrupados."
-          }
-        }
-      }
-    },
-    "shopping.check": {
-      "comment": "Swipe action label to mark a shopping-list item as bought.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Check"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Marcar"
-          }
-        }
-      }
-    },
-    "shopping.clearChecked": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Clear checked"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Borrar marcados"
-          }
-        }
-      }
-    },
-    "shopping.regenerate": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Regenerate"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Regenerar"
-          }
-        }
-      }
-    },
-    "shopping.itemsRemaining": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld of %lld remaining"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "%lld de %lld pendientes"
-          }
-        }
-      }
-    },
-    "shopping.uncheck": {
-      "comment": "Swipe action label to unmark a checked shopping-list item.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Uncheck"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Desmarcar"
+            "value": "Peso (kg)"
           }
         }
       }

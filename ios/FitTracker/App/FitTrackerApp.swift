@@ -13,6 +13,12 @@ import SwiftData
 struct FitTrackerApp: App {
     @State private var themeStore = ThemeStore()
     @State private var services = FitTrackerApp.makeServiceContainer()
+    /// The single app-wide offline-sync coordinator. Built once at launch
+    /// over the SAME durable queue (`OfflineQueue.shared`) that MealService
+    /// enqueues failed writes into, so queued mutations actually get
+    /// replayed. Without this, `pendingSync` rows would sit forever and the
+    /// "saved offline" UI would be a lie (Codex finding #4).
+    @State private var syncManager = FitTrackerApp.makeSyncManager()
 
     var body: some Scene {
         WindowGroup {
@@ -22,6 +28,10 @@ struct FitTrackerApp: App {
                 // Slice 3.7: install the SwiftData container so any view
                 // using @Query / @Environment(\.modelContext) works.
                 .modelContainer(PersistenceController.live.container)
+                // Offline-sync: wire the reachability observer and replay
+                // anything left from a prior session. `.task` runs once when
+                // the scene's root appears.
+                .task { startSync() }
         }
     }
 
@@ -38,6 +48,39 @@ struct FitTrackerApp: App {
         }
         #endif
         return MockServiceContainer.production()
+    }
+
+    /// Build the one `SyncManager` for the whole app. It drains
+    /// `OfflineQueue.shared` — the exact queue MealService enqueues failed
+    /// writes into — over an authenticated client (Bearer from the same
+    /// `KeychainTokenStore.shared` every service uses) and the system-wide
+    /// `Reachability`. The 401-refresh coordinator is wired later in
+    /// `startSync()` once the container's AuthService exists.
+    @MainActor
+    private static func makeSyncManager() -> SyncManager {
+        SyncManager(
+            api: APIClient(tokenProvider: KeychainTokenStore.shared),
+            queue: .shared,
+            reachability: .shared,
+            // Live context so a successful background replay clears the local
+            // `pendingSync` flag (keeps the cache truthful, matches the
+            // foreground write path in MealService).
+            context: PersistenceController.live.container.mainContext
+        )
+    }
+
+    /// Wires the sync manager's replay client to the live AuthService for
+    /// 401 → refresh → retry (the container's `auth` IS the real AuthService
+    /// in production), then begins observing connectivity + drains the queue.
+    /// In the all-mock path (`-useMockAuth`) there is no `TokenRefreshing`,
+    /// so we skip wiring the refresher but still start the manager (harmless:
+    /// the queue is empty in mock mode).
+    @MainActor
+    private func startSync() {
+        if let refresher = services.auth as? any TokenRefreshing {
+            syncManager.setRefresher(refresher)
+        }
+        syncManager.startObservingConnectivity()
     }
 }
 
