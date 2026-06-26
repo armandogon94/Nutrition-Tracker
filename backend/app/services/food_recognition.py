@@ -40,15 +40,25 @@ _VISION_MEDIA_TYPE = {
     "image/heif": "image/jpeg",
 }
 
+# Flash C1: the prompt is in Spanish and explicitly requests the food name "en
+# español latinoamericano" so recognized names are stored in Spanish (the
+# Spanish-first requirement). The JSON keys and the `confidence` enum values
+# stay in English because the parser (`_to_response`) pins that exact contract —
+# only the `food` VALUE is localized.
 _PROMPT = (
-    "You are a nutrition assistant. Identify the single main food in this image "
-    "and estimate the portion. Respond with ONLY a compact JSON object, no prose, "
-    "with exactly these keys: "
+    "Eres un asistente de nutrición. Identifica el único alimento principal en "
+    "esta imagen y estima la porción. El nombre del alimento (campo \"food\") "
+    "debe estar SIEMPRE en español latinoamericano (por ejemplo: \"plátano\", "
+    "\"arroz blanco\", \"pechuga de pollo a la plancha\"), nunca en inglés. "
+    "Responde ÚNICAMENTE con un objeto JSON compacto, sin texto adicional, con "
+    "exactamente estas claves: "
     '{"food": string, "grams": number, "confidence": "high"|"medium"|"low", '
     '"calories": number, "protein_g": number, "carbs_g": number, "fat_g": number}. '
-    "grams is the estimated edible weight of the portion shown. calories and the "
-    "macros are for that portion. If you cannot tell, use your best estimate and "
-    'set confidence to "low". Do not include any text outside the JSON object.'
+    "Las claves del JSON y los valores de \"confidence\" (high/medium/low) deben "
+    "permanecer en inglés tal cual. \"grams\" es el peso comestible estimado de "
+    "la porción mostrada; \"calories\" y los macros corresponden a esa porción. "
+    "Si no puedes determinarlo, usa tu mejor estimación y pon \"confidence\" en "
+    '"low". No incluyas ningún texto fuera del objeto JSON.'
 )
 
 _MAX_TOKENS = 512
