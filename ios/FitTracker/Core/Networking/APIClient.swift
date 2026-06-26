@@ -121,6 +121,21 @@ actor APIClient {
         _ = try await performRaw(req)
     }
 
+    /// POST a pre-encoded multipart/form-data body, decoded to `T`.
+    ///
+    /// Added so multipart consumers (photo recognition) share the one
+    /// authenticated client and therefore the 401 → refresh → retry path,
+    /// instead of building their own `URLSession` wrapper that hard-fails on an
+    /// expired access token. The caller builds the RFC-7578 body + boundary;
+    /// `APIClient` owns auth, dispatch, status mapping, and decoding — exactly
+    /// like `post`. The same `Bearer` header and refresher apply.
+    func postMultipart<T: Decodable & Sendable>(
+        _ path: String, body: Data, boundary: String
+    ) async throws -> T {
+        let req = try buildMultipartRequest(path: path, body: body, boundary: boundary)
+        return try await perform(req)
+    }
+
     // MARK: - Request building
 
     private struct EmptyBody: Encodable, Sendable {}
@@ -153,6 +168,28 @@ actor APIClient {
             enc.dateEncodingStrategy = .iso8601
             req.httpBody = try enc.encode(body)
         }
+        return req
+    }
+
+    /// Builds a multipart request. Shares the auth header logic with
+    /// `buildRequest` but sets `multipart/form-data` (with the caller's
+    /// boundary) and ships the pre-encoded body verbatim — the body is opaque
+    /// bytes to the client, so it never adds JSON `Content-Type` here.
+    private func buildMultipartRequest(path: String, body: Data, boundary: String) throws -> URLRequest {
+        guard let comps = URLComponents(
+            url: baseURL.appendingPathComponent(path, isDirectory: false),
+            resolvingAgainstBaseURL: false
+        ), let url = comps.url else {
+            throw APIError.unknown("Bad URL: \(path)")
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = tokenProvider?.currentAccessToken() {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        req.httpBody = body
         return req
     }
 

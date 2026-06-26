@@ -30,7 +30,7 @@ struct ShoppingListView: View {
     /// just renders `initialItems`).
     let planId: UUID?
 
-    @State private var service: MealPlanService?
+    @State private var service: (any MealPlanningServiceProtocol)?
     @State private var items: [ShoppingItem] = []
     @State private var listId: UUID?
     @State private var isWorking = false
@@ -193,7 +193,13 @@ struct ShoppingListView: View {
     // MARK: - Actions
 
     private func bootstrap() async {
-        let svc = service ?? MealPlanService(api: APIClient(tokenProvider: KeychainTokenStore.shared), context: modelContext)
+        // Prefer the container's shared-client meal-plan service so check /
+        // regenerate calls inherit 401 → refresh → retry (codex-review-4 P1).
+        // Falls back to a context-backed instance only when the container holds
+        // the minimal read-only mock (previews).
+        let svc = service
+            ?? (services.mealPlan as? any MealPlanningServiceProtocol)
+            ?? MealPlanService(api: APIClient(tokenProvider: KeychainTokenStore.shared), context: modelContext)
         service = svc
 
         if let initialItems, !initialItems.isEmpty {

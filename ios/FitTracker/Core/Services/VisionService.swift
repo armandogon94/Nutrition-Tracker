@@ -76,74 +76,47 @@ protocol VisionServiceProtocol: Sendable {
     func recognize(jpegData: Data) async throws -> VisionRecognition
 }
 
-/// Backend client. We do not route through `APIClient` because Slice 3
-/// is the first caller of multipart and we don't want to widen
-/// APIClient's surface for one consumer. Once a second caller appears
-/// we can promote the helper.
+/// Backend client. Routes through the shared `APIClient` via its multipart
+/// helper so photo recognition gets the SAME authenticated client as every
+/// other domain — and therefore the 401 → refresh → retry path. Previously
+/// this held its own `URLSession` and accepted (then discarded) an
+/// `APIClient`, so an expired access token produced a hard 401 with no
+/// refresh (codex-review-4 P1).
 final class VisionService: VisionServiceProtocol, @unchecked Sendable {
 
-    private let baseURL: URL
-    private let session: URLSession
-    private let tokenProvider: (any TokenProvider)?
+    private let api: APIClient
 
-    init(baseURL: URL = APIConfig.baseURL,
-         session: URLSession = .shared,
-         tokenProvider: (any TokenProvider)? = nil) {
-        self.baseURL = baseURL
-        self.session = session
-        self.tokenProvider = tokenProvider
+    /// Production wiring: route through the ONE shared refresh-aware client.
+    init(api: APIClient) {
+        self.api = api
     }
 
-    /// Convenience init mirroring APIClient's: pulls Keychain token for
-    /// authorization. Slice-3 production wiring uses this overload.
-    convenience init(api: APIClient,
-                     baseURL: URL = APIConfig.baseURL,
-                     tokenProvider: (any TokenProvider)? = KeychainTokenStore.shared) {
-        // We accept the APIClient just for ergonomic parity with our
-        // other services; we don't actually use it here.
-        _ = api
-        self.init(baseURL: baseURL, session: .shared, tokenProvider: tokenProvider)
+    /// Test/preview convenience: build a private `APIClient` from a baseURL +
+    /// mock session + optional token provider. Used by `VisionServiceTests`
+    /// (which drive `MockURLProtocol`) and lightweight callers that don't have
+    /// a container handy. The status-mapping + multipart contract is identical
+    /// because it goes through the same `APIClient.postMultipart`.
+    convenience init(baseURL: URL = APIConfig.baseURL,
+                     session: URLSession = .shared,
+                     tokenProvider: (any TokenProvider)? = nil) {
+        self.init(api: APIClient(baseURL: baseURL, tokenProvider: tokenProvider, session: session))
     }
 
     func recognize(jpegData: Data) async throws -> VisionRecognition {
         let boundary = "fittracker.\(UUID().uuidString)"
         let body = Self.makeMultipartBody(jpegData: jpegData, boundary: boundary)
 
-        let url = baseURL.appendingPathComponent("/api/v1/nutrition/recognize")
-        var req = URLRequest(url: url)
-        req.httpMethod = "POST"
-        req.setValue("multipart/form-data; boundary=\(boundary)",
-                     forHTTPHeaderField: "Content-Type")
-        req.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token = tokenProvider?.currentAccessToken() {
-            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        }
-        req.httpBody = body
-
-        let (data, resp) = try await session.data(for: req)
-        guard let http = resp as? HTTPURLResponse else {
-            throw APIError.unknown("Non-HTTP response")
-        }
-        // Maps the Wave 1 `/nutrition/recognize` contract. The endpoint never
-        // returns 404, so there is no `.notFound` branch: 401 -> unauthorized,
-        // 429 -> rateLimited (honoring Retry-After), and every other non-2xx
-        // (415 unsupported type, 413 too large, 400 empty, 503 unavailable,
-        // 502 upstream failure) -> `.server(status:detail:)` so the caller can
-        // branch on the code and surface the FastAPI `detail` message.
-        switch http.statusCode {
-        case 200..<300:
-            let decoder = JSONDecoder()
-            let dto = try decoder.decode(VisionRecognitionResponse.self, from: data)
-            return VisionRecognition(from: dto)
-        case 401:
-            throw APIError.unauthorized
-        case 429:
-            let retry = http.value(forHTTPHeaderField: "Retry-After").flatMap { Int($0) }
-            throw APIError.rateLimited(retryAfterSeconds: retry)
-        default:
-            throw APIError.server(status: http.statusCode,
-                                   detail: String(data: data, encoding: .utf8))
-        }
+        // `APIClient.postMultipart` owns auth (shared Bearer + refresher),
+        // dispatch, and status mapping. The Wave 1 `/nutrition/recognize`
+        // contract still holds: 401 -> unauthorized (after a refresh attempt
+        // when a refresher is configured), 429 -> rateLimited (honoring
+        // Retry-After), and 415/413/400/503/502 -> `.server(status:detail:)`
+        // via the client's default branch — so the caller can still branch on
+        // the code and surface the FastAPI `detail`. The endpoint never 404s.
+        let dto: VisionRecognitionResponse = try await api.postMultipart(
+            "/api/v1/nutrition/recognize", body: body, boundary: boundary
+        )
+        return VisionRecognition(from: dto)
     }
 
     /// Builds an RFC-7578 multipart body containing only the image part.

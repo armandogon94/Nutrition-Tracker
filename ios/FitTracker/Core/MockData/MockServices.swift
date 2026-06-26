@@ -255,6 +255,32 @@ final class MockHistoryService: HistoryServiceProtocol, @unchecked Sendable {
     }
 }
 
+// MARK: - Vision (photo recognition)
+
+/// Returns a fixed recognition so PhotoCaptureView previews + tap-through
+/// render the editable card without a backend / Claude Vision call.
+final class MockVisionService: VisionServiceProtocol, @unchecked Sendable {
+    func recognize(jpegData: Data) async throws -> VisionRecognition {
+        VisionRecognition(
+            food: "Pechuga de pollo a la plancha",
+            grams: 150,
+            confidence: "alta",
+            calories: 247,
+            proteinG: 46.5,
+            carbsG: 0,
+            fatG: 5.4
+        )
+    }
+}
+
+// MARK: - Account
+
+/// No-op account service for previews/tests: deletion "succeeds" without a
+/// backend so the SettingsView flow (confirm → delete → signOut) is exercisable.
+final class MockAccountService: AccountServiceProtocol, @unchecked Sendable {
+    func deleteAccount() async throws { /* no-op in mock */ }
+}
+
 // MARK: - Service container (DI)
 
 @Observable
@@ -291,6 +317,16 @@ final class MockServiceContainer {
     /// the SwiftData-backed `HistoryService` (Slice 8) while previews +
     /// tap-through keep the in-memory mock.
     let history: any HistoryServiceProtocol
+    /// Photo recognition. Protocol-typed so production injects the real
+    /// `VisionService` over the SHARED refresh-aware `APIClient` (codex-review-4
+    /// P1: PhotoCaptureView previously built its own client that bypassed
+    /// refresh); previews/tap-through keep the fixture mock.
+    let vision: any VisionServiceProtocol
+    /// Destructive account actions (deletion). Protocol-typed so production
+    /// injects the real `AccountService` over the SHARED client (codex-review-4
+    /// P1: SettingsView previously built its own client for DELETE /users/me);
+    /// previews/tap-through keep the no-op mock.
+    let account: any AccountServiceProtocol
 
     init(auth: (any AuthServiceProtocol)? = nil,
          nutrition: (any NutritionServiceProtocol)? = nil,
@@ -301,7 +337,9 @@ final class MockServiceContainer {
          mealPlan: (any MealPlanServiceProtocol)? = nil,
          programs: (any ProgramsServiceProtocol)? = nil,
          exercises: (any ExercisesServiceProtocol)? = nil,
-         workouts: (any WorkoutServiceProtocol)? = nil) {
+         workouts: (any WorkoutServiceProtocol)? = nil,
+         vision: (any VisionServiceProtocol)? = nil,
+         account: (any AccountServiceProtocol)? = nil) {
         let resolvedAuth = auth ?? MockAuthService()
         self.auth = resolvedAuth
         self.nutrition = nutrition ?? MockNutritionService()
@@ -313,6 +351,8 @@ final class MockServiceContainer {
         self.programs = programs ?? MockProgramsService()
         self.exercises = exercises ?? MockExercisesService()
         self.workouts = workouts ?? MockWorkoutService()
+        self.vision = vision ?? MockVisionService()
+        self.account = account ?? MockAccountService()
 
         #if DEBUG
         // Auto-login when the app is launched with `-uiAutoLogin carlos`.
@@ -377,11 +417,17 @@ final class MockServiceContainer {
         let programs = ProgramsService(api: api, container: liveContainer)
         let exercises = ExercisesService(api: api, container: liveContainer)
         let workouts = WorkoutService(api: api, context: liveContext)
+        // codex-review-4 P1: vision + account now ride the SAME shared client,
+        // so photo recognition and account deletion get 401 → refresh → retry
+        // instead of building ad-hoc clients that hard-fail on token expiry.
+        let vision = VisionService(api: api)
+        let account = AccountService(api: api)
 
         return MockServiceContainer(
             auth: auth, nutrition: nutrition, profile: profile, history: history,
             products: products, meals: meals, mealPlan: mealPlan,
-            programs: programs, exercises: exercises, workouts: workouts
+            programs: programs, exercises: exercises, workouts: workouts,
+            vision: vision, account: account
         )
     }
 }

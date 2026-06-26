@@ -98,13 +98,14 @@ struct SettingsView: View {
     }
 
     /// Performs the real deletion: an authenticated DELETE to the backend, then
-    /// a sign-out. Uses existing methods only (per slice ownership rules): an
-    /// inline authenticated `APIClient` and `services.auth.signOut()`.
+    /// a sign-out. Routes through the container's `account` service — the real
+    /// `AccountService` over the ONE shared refresh-aware `APIClient` — so an
+    /// expired access token refreshes + retries instead of hard-failing
+    /// (codex-review-4 P1). Previously this built its own inline client.
     private func deleteAccount() async {
         await deletion.performDeletion(
             delete: {
-                let api = APIClient(tokenProvider: KeychainTokenStore.shared)
-                try await api.delete("/api/v1/users/me")
+                try await services.account.deleteAccount()
             },
             signOut: {
                 await services.auth.signOut()
