@@ -104,13 +104,34 @@ final class SyncManager {
             guard status == .online else { return }
             Task { @MainActor in await self?.drainNow() }
         }
-        // Replay any leftover queue from a prior launch. `.unknown` (cold
-        // launch before NWPathMonitor's first callback) is treated as
-        // worth-trying: drain stops on the first failure, so an attempt
-        // while genuinely offline is cheap and self-correcting.
+        // Replay any leftover queue from a prior launch. This ALSO covers the
+        // "path was already online before we subscribed" case, so the listener
+        // above only needs to handle the NEXT online flip — no double drain.
+        // `.unknown` (cold launch before NWPathMonitor's first callback) is
+        // treated as worth-trying: drain stops on the first failure, so an
+        // attempt while genuinely offline is cheap and self-correcting. NOTE:
+        // at cold launch the current user is usually still nil here (AuthGate
+        // restores later), so this drain flushes nothing — the leftover queue
+        // is replayed once auth is established via `replayAfterAuthChange()`
+        // (Codex review #5 P1).
         if reachability.status != .offline {
             Task { @MainActor in await self.drainNow() }
         }
+    }
+
+    /// Replay the queue right after the signed-in user becomes known
+    /// (successful restore / login / register / Apple sign-in). Sync starts
+    /// from `FitTrackerApp.task` BEFORE `AuthGate.restoreSession()` sets the
+    /// user, so the launch drain runs with a nil user and flushes nothing; if
+    /// reachability already went online, nothing else would re-trigger a drain.
+    /// The app calls this once auth is established so the leftover queue from a
+    /// prior session actually replays (Codex review #5 P1). Skips the network
+    /// when offline — `.unknown` (pre-first-NWPathMonitor-callback) is treated
+    /// as worth-trying, exactly like `startObservingConnectivity`; a drain
+    /// while genuinely offline is cheap and self-correcting.
+    func replayAfterAuthChange() async {
+        guard reachability.status != .offline else { return }
+        await drainNow()
     }
 
     /// Enqueue a write. If online, attempt an immediate flush; if that

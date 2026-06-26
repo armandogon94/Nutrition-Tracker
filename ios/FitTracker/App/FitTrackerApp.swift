@@ -32,6 +32,17 @@ struct FitTrackerApp: App {
                 // anything left from a prior session. `.task` runs once when
                 // the scene's root appears.
                 .task { startSync() }
+                // Cold-launch replay (Codex review #5 P1): `startSync()` above
+                // fires its first drain BEFORE AuthGate.restoreSession() sets
+                // the user, so that drain flushes nothing (nil owner). When the
+                // user later becomes known (restore / login / register / Apple),
+                // re-trigger a drain so a queue left over from a prior session
+                // actually replays. Keyed on the user id so it fires on every
+                // sign-in transition, not just the first.
+                .onChange(of: services.auth.currentUser?.id) { _, newUserId in
+                    guard newUserId != nil else { return }
+                    Task { await syncManager.replayAfterAuthChange() }
+                }
         }
     }
 
