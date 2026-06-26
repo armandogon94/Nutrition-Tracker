@@ -1,6 +1,12 @@
 import os
 
-os.environ["DATABASE_URL"] = "postgresql+asyncpg://postgres:postgres@localhost:5433/fit_db_test"
+# Test DB is configurable via TEST_DB_URL so parallel test runs (e.g. separate
+# worktrees / CI shards) can target separate databases without corrupting each
+# other's data. Default is unchanged for local/dev use.
+TEST_DB_URL = os.environ.get(
+    "TEST_DB_URL", "postgresql+asyncpg://postgres:postgres@localhost:5433/fit_db_test"
+)
+os.environ["DATABASE_URL"] = TEST_DB_URL
 
 import uuid
 
@@ -11,8 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.core.security import create_access_token, hash_password
 from app.main import app
 from app.models.user import User
-
-TEST_DB_URL = "postgresql+asyncpg://postgres:postgres@localhost:5433/fit_db_test"
 
 
 @pytest.fixture(scope="session", autouse=True)
