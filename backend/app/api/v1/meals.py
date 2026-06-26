@@ -93,8 +93,16 @@ def _parse_product_id(raw: str | None) -> UUID | None:
         return None
 
 
-async def _resolve_product_for_log(db: AsyncSession, data: MealLogRequest) -> Product:
+async def _resolve_product_for_log(
+    db: AsyncSession, data: MealLogRequest
+) -> tuple[Product, bool]:
     """Resolve (or create) the Product backing a logged item.
+
+    Returns ``(product, created_new)`` where ``created_new`` is True only when
+    THIS request's INSERT actually landed the snapshot row. B4: the caller uses
+    this flag to decide whether a losing-race orphan cleanup is safe — a
+    pre-existing catalog row (reused via the early ``db.get``) or a snapshot a
+    concurrent request created must NEVER be deleted by this request.
 
     iOS sends TOTAL macros for ``servings`` plus a client-side product id that
     may not exist in our catalog (vision/manual items). We store *per-serving*
@@ -108,47 +116,55 @@ async def _resolve_product_for_log(db: AsyncSession, data: MealLogRequest) -> Pr
     id, so two concurrent replays carrying the SAME new ``product_id`` would
     otherwise both miss the read and both try to INSERT the same row — the loser
     hits a unique violation that poisons the session and 500s. We instead insert
-    via ``INSERT ... ON CONFLICT DO NOTHING`` (which never raises, covering both
-    the id and barcode constraints) and re-select by id, mirroring the
-    meal/meal-item find-or-create pattern. Whoever loses the race converges on
-    the existing snapshot row instead of erroring.
+    via ``INSERT ... ON CONFLICT DO NOTHING RETURNING id`` (which never raises,
+    covering both the id and barcode constraints): a non-empty RETURNING means we
+    created it; an empty one means a concurrent request did, so we re-select by
+    id and report ``created_new=False``.
     """
-    servings = data.servings if data.servings > 0 else 1.0
+    # B5/Flash A7: clamp the divisor so a tiny-but-positive servings value can't
+    # blow up the per-serving macro math (overflow / inf). Pydantic already
+    # rejects <= 0; this is defense in depth for direct/internal callers.
+    servings = max(data.servings, 0.01)
 
     pid = _parse_product_id(data.product_id)
     if pid is not None:
         # Reuse an existing catalog/snapshot row if the id already maps to one.
         product = await db.get(Product, pid)
         if product is not None:
-            return product
+            return product, False
 
     # Snapshot id: honor the client's id when valid, else mint a fresh one.
     new_id = pid if pid is not None else uuid4()
-    await db.execute(
-        pg_insert(Product)
-        .values(
-            id=new_id,
-            # Barcode is unique + required; synthesize a stable, non-colliding
-            # one for client-logged items that have no real barcode. Derived
-            # from the id so an id-conflict and a barcode-conflict are the same
-            # row (re-selecting by id always finds the winner).
-            barcode=f"log:{new_id}",
-            name=data.product_name,
-            brand=data.brand,
-            serving_size_g=100.0,
-            calories=data.calories / servings,
-            protein_g=data.protein_g / servings,
-            carbs_g=data.carbs_g / servings,
-            fat_g=data.fat_g / servings,
-            fiber_g=0.0,
-            source="manual",
+    inserted_id = (
+        await db.execute(
+            pg_insert(Product)
+            .values(
+                id=new_id,
+                # Barcode is unique + required; synthesize a stable, non-colliding
+                # one for client-logged items that have no real barcode. Derived
+                # from the id so an id-conflict and a barcode-conflict are the same
+                # row (re-selecting by id always finds the winner).
+                barcode=f"log:{new_id}",
+                name=data.product_name,
+                brand=data.brand,
+                serving_size_g=100.0,
+                calories=data.calories / servings,
+                protein_g=data.protein_g / servings,
+                carbs_g=data.carbs_g / servings,
+                fat_g=data.fat_g / servings,
+                fiber_g=0.0,
+                source="manual",
+            )
+            .on_conflict_do_nothing()
+            .returning(Product.id)
         )
-        .on_conflict_do_nothing()
-    )
+    ).scalar_one_or_none()
+
+    created_new = inserted_id is not None
     product = await db.get(Product, new_id)
     if product is None:  # pragma: no cover - row must exist after insert-or-conflict
         raise HTTPException(status_code=500, detail="Failed to resolve product")
-    return product
+    return product, created_new
 
 
 def _item_to_log_response(item: MealItem, product: Product) -> MealItemLogResponse:
@@ -188,9 +204,8 @@ async def _get_or_create_item(
     DO NOTHING`` against the ``uq_meal_items_meal_client_item`` partial unique
     index — the insert never raises, so the session is never poisoned. If we lose
     the race (RETURNING is empty), we return the item the winner committed
-    instead, discarding our own snapshot product only when it is genuinely a
-    distinct orphan (concurrent replays carrying the same product_id converge on
-    the same shared snapshot row, so there is nothing to clean up).
+    instead, discarding our own snapshot product only when THIS request newly
+    created it as an orphan ``log:`` snapshot (B4).
 
     With no client_item_id there is no idempotency key (the partial index
     excludes NULLs), so the insert always lands as a fresh row.
@@ -204,7 +219,7 @@ async def _get_or_create_item(
             product = await db.get(Product, existing.product_id)
             return existing, product
 
-    product = await _resolve_product_for_log(db, data)
+    product, created_new = await _resolve_product_for_log(db, data)
 
     stmt = (
         pg_insert(MealItem)
@@ -228,15 +243,22 @@ async def _get_or_create_item(
         item = await db.get(MealItem, inserted_id)
         return item, product
 
-    # Lost the concurrent race on this client_item_id. Return the winner's row;
-    # discard our snapshot product only if it's a distinct orphan (a different
-    # product_id than the winner used — same-id replays already converged).
+    # Lost the concurrent race on this client_item_id. Return the winner's row.
     existing = await _select_item_by_client_id(
         db, meal_id=meal_id, client_item_id=data.client_item_id
     )
     if existing is None:  # pragma: no cover - conflict implies a row exists
         raise HTTPException(status_code=500, detail="Failed to resolve meal item")
-    if existing.product_id != product.id:
+    # B4: only clean up a snapshot THIS request newly created and that is a
+    # genuinely-orphaned log snapshot — never a pre-existing shared catalog row
+    # (which `created_new=False` covers) and never a real-barcode product. This
+    # prevents a losing race from deleting another user's catalog product.
+    if (
+        existing.product_id != product.id
+        and created_new
+        and product.source == "manual"
+        and product.barcode.startswith("log:")
+    ):
         await db.delete(product)
     winner_product = await db.get(Product, existing.product_id)
     return existing, winner_product

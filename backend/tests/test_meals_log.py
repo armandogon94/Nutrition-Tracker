@@ -15,10 +15,14 @@ import asyncio
 import uuid
 from datetime import date
 
+import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
-from app.api.v1.meals import _resolve_product_for_log
+from app.api.v1.meals import (
+    _find_or_create_meal,
+    _resolve_product_for_log,
+)
 from app.main import app
 from app.models.meal import Meal, MealItem
 from app.models.product import Product
@@ -422,7 +426,7 @@ async def test_resolve_product_race_converges_no_integrity_error(setup_db):
             #    at the same time — the interleaving that broke select+flush.
             await pre_insert.wait()
             try:
-                product = await _resolve_product_for_log(session, data)
+                product, _created = await _resolve_product_for_log(session, data)
                 await session.commit()
                 return ("ok", str(product.id))
             except Exception as exc:  # pragma: no cover - asserted absent below
@@ -444,3 +448,216 @@ async def test_resolve_product_race_converges_no_integrity_error(setup_db):
             .where(Product.id == uuid.UUID(shared_product_id))
         )
     assert count == 1
+
+
+# ---- B4: meal-log conflict cleanup must not delete a catalog product ----------
+#
+# Race two /meals/log with the SAME client_item_id but DIFFERENT product_ids.
+# The loser loads the winning item, sees existing.product_id != product.id, and
+# the OLD code ran `await db.delete(product)`. If the loser's product_id was a
+# pre-existing SHARED catalog product, that row was deleted for EVERY user. The
+# fix gates the delete on created_new (this request newly created the snapshot)
+# AND it being a `log:` manual orphan — so a catalog row is never deleted.
+#
+# The dangerous branch only runs when the fast-path existence SELECT MISSES but
+# the subsequent INSERT then LOSES the ON CONFLICT race (a true TOCTOU window).
+# We reproduce that deterministically by forcing the loser's *first*
+# (fast-path) existence lookup to return None even though the winning item is
+# already committed; its INSERT then conflicts and it falls into the cleanup
+# branch with the catalog product in hand.
+
+
+async def test_log_conflict_does_not_delete_catalog_product(setup_db, monkeypatch):
+    """Losing-race cleanup must NOT delete a pre-existing catalog product (B4)."""
+    import app.api.v1.meals as meals_mod
+    from app.core.security import hash_password
+    from app.models.user import User
+
+    _engine, session_factory = setup_db
+    user_id = uuid.UUID("00000000-0000-0000-0000-000000000099")
+    catalog_id = uuid.uuid4()
+    shared_client_item_id = str(uuid.uuid4())
+
+    # Seed the user, a parent meal, the winning item (pointing at a SNAPSHOT
+    # product), and a pre-existing SHARED catalog product the loser references.
+    async with session_factory() as session:
+        session.add(
+            User(
+                id=user_id,
+                email="b4user@test.dev",
+                password_hash=hash_password("x"),
+                display_name="B4",
+            )
+        )
+        await session.commit()
+        meal = await _find_or_create_meal(
+            session, user_id=user_id, meal_type="lunch", meal_date=date(2026, 6, 25)
+        )
+        meal_id = meal.id
+
+        snapshot_pid = uuid.uuid4()
+        session.add(
+            Product(
+                id=snapshot_pid,
+                barcode=f"log:{snapshot_pid}",
+                name="Winning Snapshot",
+                serving_size_g=100.0,
+                calories=100.0,
+                source="manual",
+            )
+        )
+        # The pre-existing SHARED catalog product (real barcode, trusted source).
+        session.add(
+            Product(
+                id=catalog_id,
+                barcode="7501055309999",
+                name="Shared Catalog Cola",
+                brand="Coca-Cola",
+                serving_size_g=355.0,
+                calories=140.0,
+                carbs_g=39.0,
+                source="open_food_facts",
+            )
+        )
+        await session.commit()
+        # The WINNER's item, already committed under this client_item_id.
+        winning_item = MealItem(
+            meal_id=meal_id,
+            product_id=snapshot_pid,
+            quantity_servings=1.0,
+            client_item_id=shared_client_item_id,
+        )
+        session.add(winning_item)
+        await session.commit()
+
+    # Force the loser's FAST-PATH existence lookup to miss, so it proceeds to the
+    # INSERT (which then loses on the unique index) and enters the cleanup branch.
+    real_select = meals_mod._select_item_by_client_id
+    calls = {"n": 0}
+
+    async def flaky_select(db, *, meal_id, client_item_id):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return None  # simulate the TOCTOU: not yet visible on fast path
+        return await real_select(db, meal_id=meal_id, client_item_id=client_item_id)
+
+    monkeypatch.setattr(meals_mod, "_select_item_by_client_id", flaky_select)
+
+    data = MealLogRequest(
+        meal_type="lunch",
+        meal_date=date(2026, 6, 25),
+        product_id=str(catalog_id),  # loser references the CATALOG product
+        product_name="Catalog Item",
+        brand="Coca-Cola",
+        servings=1.0,
+        calories=140.0,
+        protein_g=0.0,
+        carbs_g=39.0,
+        fat_g=0.0,
+        client_item_id=shared_client_item_id,
+    )
+    async with session_factory() as session:
+        item, _product = await meals_mod._get_or_create_item(
+            session, meal_id=meal_id, data=data
+        )
+        await session.commit()
+
+    # The loser converged on the winner's item (idempotent).
+    assert str(item.client_item_id) == shared_client_item_id
+
+    # The pre-existing catalog product MUST still exist (the bug deleted it).
+    async with session_factory() as session:
+        survived = await session.get(Product, catalog_id)
+    assert survived is not None, "catalog product was wrongly deleted on losing race"
+    assert survived.source == "open_food_facts"
+
+
+# ---- B5 / Flash A1+A7: meal-quantity validation + servings clamp --------------
+#
+# `servings` must be > 0 and bounded; negative/zero/huge values are rejected at
+# the schema boundary (422) so they can never produce negative or NaN macros.
+# A tiny-but-positive servings (e.g. 1e-300) must not blow up the per-serving
+# macro division — it is clamped to >= 0.01 in _resolve_product_for_log.
+
+
+async def test_log_rejects_negative_servings(auth_client):
+    resp = await auth_client.post(
+        "/api/v1/meals/log", json=_log_body(servings=-1000000.0)
+    )
+    assert resp.status_code == 422
+
+
+async def test_log_rejects_zero_servings(auth_client):
+    resp = await auth_client.post("/api/v1/meals/log", json=_log_body(servings=0.0))
+    assert resp.status_code == 422
+
+
+async def test_log_rejects_huge_servings(auth_client):
+    resp = await auth_client.post(
+        "/api/v1/meals/log", json=_log_body(servings=1e9)
+    )
+    assert resp.status_code == 422
+
+
+async def test_log_tiny_servings_does_not_blow_up_macros(auth_token, db_session):
+    """A tiny positive servings is accepted (passes Pydantic gt=0) but the
+    per-serving macro division must be clamped, never producing inf/NaN.
+
+    Drives the resolver directly so we can pass 1e-300 (which JSON would render
+    awkwardly) and assert the stored per-serving macros are finite.
+    """
+    import math
+
+    from app.api.v1.meals import _resolve_product_for_log
+
+    data = MealLogRequest(
+        meal_type="lunch",
+        meal_date=date(2026, 6, 25),
+        product_id=str(uuid.uuid4()),
+        product_name="Tiny Servings Food",
+        brand="Generic",
+        servings=1e-300,  # tiny but > 0
+        calories=300.0,
+        protein_g=30.0,
+        carbs_g=10.0,
+        fat_g=5.0,
+        client_item_id=str(uuid.uuid4()),
+    )
+    product, created_new = await _resolve_product_for_log(db_session, data)
+    assert created_new is True
+    # Clamped divisor (>= 0.01): 300 / 0.01 = 30000, finite — not inf/NaN.
+    assert math.isfinite(product.calories)
+    assert math.isfinite(product.protein_g)
+    assert product.calories == pytest.approx(300.0 / 0.01, rel=1e-6)
+
+
+async def test_add_meal_item_rejects_negative_servings(auth_client, db_session):
+    """The legacy POST /meals/{id}/items route also rejects bad quantities."""
+    from app.models.product import Product as ProductModel
+
+    product = ProductModel(
+        barcode=f"B5-{uuid.uuid4().hex[:8]}",
+        name="Item",
+        serving_size_g=100.0,
+        calories=100.0,
+        source="manual",
+    )
+    db_session.add(product)
+    await db_session.commit()
+
+    meal = await auth_client.post(
+        "/api/v1/meals", json={"meal_type": "lunch", "meal_date": "2026-06-25"}
+    )
+    meal_id = meal.json()["id"]
+
+    resp = await auth_client.post(
+        f"/api/v1/meals/{meal_id}/items",
+        json={"product_id": str(product.id), "quantity_servings": -5.0},
+    )
+    assert resp.status_code == 422
+
+    resp_zero = await auth_client.post(
+        f"/api/v1/meals/{meal_id}/items",
+        json={"product_id": str(product.id), "quantity_grams": 0.0},
+    )
+    assert resp_zero.status_code == 422
