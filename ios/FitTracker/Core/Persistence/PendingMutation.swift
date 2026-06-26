@@ -14,6 +14,14 @@
 //  and `.deleteMealItem` targets the by-id delete route
 //  (`DELETE /api/v1/meals/items/{id}`), which is itself idempotent.
 //
+//  Slice (offline-queue-userscope): EVERY payload also carries `ownerId`
+//  — the id of the user who created the write. The queue is app-global
+//  `UserDefaults` and the backend derives ownership from the bearer token,
+//  so without this stamp a write enqueued by user A could replay under
+//  user B's token after an account switch and land in B's account (Codex
+//  review #4 P0). `SyncManager` compares `ownerId` to the signed-in user
+//  before replaying and skips/quarantines anything that isn't theirs.
+//
 
 import Foundation
 
@@ -40,6 +48,17 @@ enum PendingMutation: Codable, Sendable, Identifiable, Equatable {
         }
     }
 
+    /// The id of the user who created this write. `SyncManager` compares it
+    /// to the signed-in user before replaying so a write enqueued by one
+    /// account never flushes under another's bearer token (Codex review #4
+    /// P0). Distinct from `id`, which is the per-mutation dedup key.
+    var ownerId: UUID {
+        switch self {
+        case .logMealItem(let p): return p.ownerId
+        case .deleteMealItem(let p): return p.ownerId
+        }
+    }
+
     /// The backend path this mutation flushes to. Kept here (rather than in
     /// SyncManager) so the queue record is self-describing for logging.
     var endpoint: String {
@@ -55,6 +74,7 @@ enum PendingMutation: Codable, Sendable, Identifiable, Equatable {
 /// backend `meal_date` is a Pydantic `date` that 422s on a datetime with a
 /// non-zero time component — the same reason MealService pre-formats it.
 struct LogMealItemPayload: Codable, Sendable, Equatable {
+    let ownerId: UUID             // user who logged this item (replay owner-guard)
     let clientItemId: UUID        // local MealItem id → backend client_item_id
     let mealType: String
     let mealDate: String          // "yyyy-MM-dd"
@@ -88,5 +108,6 @@ struct LogMealItemPayload: Codable, Sendable, Equatable {
 }
 
 struct DeleteMealItemPayload: Codable, Sendable, Equatable {
+    let ownerId: UUID             // user who deleted this item (replay owner-guard)
     let id: UUID
 }

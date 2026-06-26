@@ -26,14 +26,24 @@ final class AuthService: AuthServiceProtocol, TokenRefreshing {
 
     private let api: APIClient
     private let keychain: KeychainTokenStore
+    /// The app-wide durable offline queue. On sign-out we purge the
+    /// signed-out user's queued writes from it so they can NEVER replay
+    /// under the next account (Codex review #4 P0). Defaults to
+    /// `OfflineQueue.shared` — the exact instance SyncManager drains and
+    /// MealService enqueues into — so production wiring needs no extra
+    /// plumbing; tests inject an isolated queue (or `nil` to opt out).
+    private let offlineQueue: OfflineQueue?
 
     /// Single in-flight refresh Task. Concurrent callers needing a fresh
     /// access token await the same task, ensuring only one network round
     /// trip per refresh window. See ADR-0003.
     private var inFlightRefresh: Task<String, Error>?
 
-    init(api: APIClient? = nil, keychain: KeychainTokenStore = .shared) {
+    init(api: APIClient? = nil,
+         keychain: KeychainTokenStore = .shared,
+         offlineQueue: OfflineQueue? = .shared) {
         self.keychain = keychain
+        self.offlineQueue = offlineQueue
         // The APIClient must read tokens from the same Keychain so its
         // Bearer header reflects whatever AuthService just persisted.
         self.api = api ?? APIClient(tokenProvider: keychain)
@@ -101,10 +111,22 @@ final class AuthService: AuthServiceProtocol, TokenRefreshing {
     }
 
     func signOut() async {
+        // Capture WHO is signing out before we tear down state, so we can
+        // purge exactly their queued writes from the shared offline queue.
+        // This is the sign-out half of the cross-user replay fix (Codex
+        // review #4 P0): even though SyncManager owner-guards replay, we also
+        // drop the signed-out user's mutations here so a stale write can never
+        // linger and replay under the next account. Crash-safe (single atomic
+        // UserDefaults write). Account deletion routes through sign-out too.
+        let signingOutUserId = currentUser?.id
+
         // Best-effort server-side revocation; ignore failures so local logout
         // always succeeds even when offline.
         if let refresh = keychain.currentRefreshToken() {
             _ = try? await api.postVoid("/api/v1/auth/logout", body: RefreshRequest(refresh_token: refresh))
+        }
+        if let signingOutUserId {
+            await offlineQueue?.removeAll(ownedBy: signingOutUserId)
         }
         keychain.clearAll()
         currentUser = nil

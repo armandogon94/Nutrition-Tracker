@@ -28,6 +28,16 @@ final class SyncManager {
     private let context: ModelContext?
     private var didWireDrainOnReconnect = false
 
+    /// Resolves the currently signed-in user's id (the SAME id stamped onto
+    /// every `PendingMutation`). Replay is owner-guarded against this: a
+    /// queued write is only flushed when its `ownerId` matches, so user A's
+    /// offline write never replays under user B's token after an account
+    /// switch (Codex review #4 P0). FitTrackerApp wires this to
+    /// `AuthService.currentUser?.id` via `setCurrentUserProvider`. When unset
+    /// (or it returns nil — no one signed in) NOTHING is replayed, which is
+    /// the safe default: better to hold writes than send them unowned.
+    private var currentUserProvider: (@MainActor () -> UUID?)?
+
     init(api: APIClient = APIClient(),
          queue: OfflineQueue = OfflineQueue(),
          reachability: Reachability = .shared,
@@ -51,6 +61,16 @@ final class SyncManager {
     /// `APIClient` (whose setter is itself `nonisolated`).
     func setRefresher(_ refresher: any TokenRefreshing) {
         api.setRefresher(refresher)
+    }
+
+    /// Register the source of truth for "who is signed in right now" so replay
+    /// can owner-guard every mutation. FitTrackerApp calls this once with a
+    /// closure reading `AuthService.currentUser?.id`. Until it's set, replay
+    /// is a no-op (see `currentUserProvider`) — the queue is never flushed
+    /// under an unknown identity. Kept as a closure (rather than holding the
+    /// AuthService) so SyncManager stays free of a concrete auth dependency.
+    func setCurrentUserProvider(_ provider: @escaping @MainActor () -> UUID?) {
+        currentUserProvider = provider
     }
 
     /// Call once at app launch (FitTrackerApp). Wires the
@@ -91,9 +111,23 @@ final class SyncManager {
     @discardableResult
     func drainNow() async -> Int {
         let api = self.api
+        // Owner-guard: only replay the signed-in user's mutations. If we don't
+        // yet know who's signed in (provider unset, or it returns nil because
+        // no one is), replay NOTHING — never flush a queued write under an
+        // unknown or mismatched identity (Codex review #4 P0). Once a provider
+        // is wired (production), a missing current user means signed-out, so
+        // holding the queue is exactly right.
+        let currentUserId: UUID?
+        if let provider = currentUserProvider {
+            currentUserId = provider()
+        } else {
+            currentUserId = nil
+        }
+        guard let ownerId = currentUserId else { return 0 }
+
         // Snapshot before/after so we know exactly which mutations flushed.
         let before = await queue.peekAll()
-        let drained = await queue.drain { mutation in
+        let drained = await queue.drain(ownedBy: ownerId) { mutation in
             try await Self.execute(mutation, with: api)
         }
         if drained > 0 {
