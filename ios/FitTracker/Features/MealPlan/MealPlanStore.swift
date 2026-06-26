@@ -39,12 +39,19 @@ final class MealPlanStore {
         self.weekStart = weekStart
     }
 
-    /// Convenience builder used by views: wires the real MealPlanService to
-    /// the live SwiftData context. `userId` falls back to a stable mock id
-    /// when no session is available (previews / Slice 0.5 tap-through).
-    static func live(context: ModelContext,
+    /// Convenience builder used by views: prefers the container's `mealPlan`
+    /// service (the real `MealPlanService` over the ONE shared refresh-aware
+    /// `APIClient`) so plan mutations get 401 → refresh → retry. Previously this
+    /// built its own `APIClient(tokenProvider:)`, which bypassed refresh
+    /// (codex-review-4 P1). Falls back to a context-backed instance only when
+    /// the container holds the minimal read-only mock (previews / tap-through).
+    /// `userId` falls back to a stable mock id when no session is available.
+    @MainActor
+    static func live(containerService: any MealPlanServiceProtocol,
+                     context: ModelContext,
                      userId: UUID = MockData.user.id) -> MealPlanStore {
-        let service = MealPlanService(api: APIClient(tokenProvider: KeychainTokenStore.shared), context: context)
+        let service: any MealPlanningServiceProtocol = (containerService as? any MealPlanningServiceProtocol)
+            ?? MealPlanService(api: APIClient(tokenProvider: KeychainTokenStore.shared), context: context)
         return MealPlanStore(service: service, userId: userId)
     }
 

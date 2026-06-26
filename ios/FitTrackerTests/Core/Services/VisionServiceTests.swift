@@ -133,17 +133,27 @@ struct VisionServiceTests {
     /// `.server(status:detail:)` — which carries the HTTP status so a view
     /// model can branch on it and show the right message. These tests pin that
     /// real mapping (each status round-trips its code + detail).
-    @Test("415/413/400/503/502 surface APIError.server with the status + detail")
+    ///
+    /// Now that VisionService routes through the shared `APIClient`, the detail
+    /// is the *unwrapped* FastAPI `detail` string (the client's `extractDetail`
+    /// pulls the inner message), not the raw JSON envelope — a strictly better
+    /// user-facing message that matches every other domain's error handling.
+    @Test("415/413/400/503/502 surface APIError.server with the status + unwrapped detail")
     func visionService_mapsServerStatuses() async throws {
         let sut = makeSUT()
-        let cases: [(Int, String)] = [
-            (415, #"{"detail":"Unsupported image type. Allowed: image/jpeg, image/png"}"#),
-            (413, #"{"detail":"Image exceeds the 10 MiB limit"}"#),
-            (400, #"{"detail":"Empty image upload"}"#),
-            (503, #"{"detail":"Food recognition is not available"}"#),
-            (502, #"{"detail":"Could not recognize the food in this image"}"#),
+        // (status, raw response body, expected unwrapped detail)
+        let cases: [(Int, String, String)] = [
+            (415, #"{"detail":"Unsupported image type. Allowed: image/jpeg, image/png"}"#,
+                  "Unsupported image type. Allowed: image/jpeg, image/png"),
+            (413, #"{"detail":"Image exceeds the 10 MiB limit"}"#,
+                  "Image exceeds the 10 MiB limit"),
+            (400, #"{"detail":"Empty image upload"}"#, "Empty image upload"),
+            (503, #"{"detail":"Food recognition is not available"}"#,
+                  "Food recognition is not available"),
+            (502, #"{"detail":"Could not recognize the food in this image"}"#,
+                  "Could not recognize the food in this image"),
         ]
-        for (status, bodyJSON) in cases {
+        for (status, bodyJSON, expectedDetail) in cases {
             nonisolated(unsafe) let captured = (status, bodyJSON)
             MockURLProtocol.handler = { req in
                 let resp = HTTPURLResponse(url: req.url!, statusCode: captured.0,
@@ -151,7 +161,7 @@ struct VisionServiceTests {
                                            headerFields: ["Content-Type": "application/json"])!
                 return (resp, Data(captured.1.utf8))
             }
-            await #expect(throws: APIError.server(status: status, detail: bodyJSON)) {
+            await #expect(throws: APIError.server(status: status, detail: expectedDetail)) {
                 _ = try await sut.recognize(jpegData: Data([0xFF, 0xD8, 0xFF, 0xD9]))
             }
         }

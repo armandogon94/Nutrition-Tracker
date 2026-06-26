@@ -19,16 +19,21 @@ import PhotosUI
 struct PhotoCaptureView: View {
     @Environment(\.appTheme) private var theme
     @Environment(\.dismiss) private var dismiss
+    @Environment(MockServiceContainer.self) private var services
 
     /// Surface the recognized food back to the parent. Parent decides
     /// what to do with it — typically opens ProductLookupSheet so the
     /// user can edit grams + meal type before logging.
     let onRecognized: (VisionRecognition) -> Void
-    /// Override for tests. Production wires the backend-backed
-    /// VisionService; previews/tests can swap in a fixture.
-    var visionService: any VisionServiceProtocol = VisionService(
-        api: APIClient(tokenProvider: KeychainTokenStore.shared)
-    )
+    /// Optional override for tests/previews. When nil (production), the view
+    /// uses `services.vision` — the real `VisionService` over the ONE shared
+    /// refresh-aware `APIClient` — instead of building its own client that
+    /// would bypass 401 → refresh → retry (codex-review-4 P1).
+    var injectedVisionService: (any VisionServiceProtocol)?
+
+    private var visionService: any VisionServiceProtocol {
+        injectedVisionService ?? services.vision
+    }
 
     @State private var pickedImage: UIImage? = nil
     @State private var photoItem: PhotosPickerItem? = nil

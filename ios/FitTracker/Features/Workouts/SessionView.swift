@@ -44,11 +44,13 @@ struct SessionView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(MockServiceContainer.self) private var services
 
     let config: SessionConfig
-    /// Optional service override for previews/tests. Production builds the
-    /// real `WorkoutService` from the environment `modelContext` +
-    /// Keychain-backed APIClient, mirroring how ScanView builds MealService.
+    /// Optional service override for previews/tests. When nil (production), the
+    /// view uses the container's `workouts` service — the real `WorkoutService`
+    /// over the ONE shared refresh-aware `APIClient` — instead of building its
+    /// own client that would bypass 401 → refresh → retry (codex-review-4 P1).
     var injectedService: (any WorkoutLoggingServiceProtocol)?
 
     @State private var model: SessionViewModel?
@@ -56,8 +58,17 @@ struct SessionView: View {
     @State private var showRestTimer = false
     @State private var showEndConfirm = false
 
+    /// Resolves the logging service: explicit override first, otherwise the
+    /// container's shared-client `WorkoutService`. The production `workouts`
+    /// slot is a `WorkoutService` (conforms to `WorkoutLoggingServiceProtocol`);
+    /// the `as?` only fails for a read-only mock with no override, where we fall
+    /// back to a context-backed instance so previews still function.
     private var service: any WorkoutLoggingServiceProtocol {
-        injectedService ?? WorkoutService(
+        if let injectedService { return injectedService }
+        if let logging = services.workouts as? any WorkoutLoggingServiceProtocol {
+            return logging
+        }
+        return WorkoutService(
             api: APIClient(tokenProvider: KeychainTokenStore.shared),
             context: modelContext
         )

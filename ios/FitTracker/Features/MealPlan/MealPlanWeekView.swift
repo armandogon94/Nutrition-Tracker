@@ -64,7 +64,10 @@ struct MealPlanWeekView: View {
 
     private func makeStore() -> MealPlanStore {
         let userId = services.auth.currentUser?.id ?? MockData.user.id
-        return MealPlanStore.live(context: modelContext, userId: userId)
+        // Route through the container's shared-client meal-plan service so
+        // mutations inherit 401 → refresh → retry (codex-review-4 P1).
+        return MealPlanStore.live(containerService: services.mealPlan,
+                                  context: modelContext, userId: userId)
     }
 
     @ViewBuilder
