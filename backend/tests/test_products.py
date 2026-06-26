@@ -112,6 +112,75 @@ async def test_lookup_usda_fdc_no_key():
 
 
 # ---------------------------------------------------------------------------
+# Flash G2 — cascade order: OFF -> FatSecret -> USDA FDC.
+# USDA FDC has no barcode endpoint (text-search only), so it must be LAST. We
+# record the call order and assert FatSecret is consulted before USDA, and that
+# a FatSecret hit short-circuits USDA entirely.
+# ---------------------------------------------------------------------------
+
+
+async def test_cascade_order_is_off_fatsecret_usda(monkeypatch):
+    from app.services import product_lookup as pl
+
+    calls: list[str] = []
+
+    async def off(barcode, client):
+        calls.append("off")
+        return None
+
+    async def fatsecret(barcode, client):
+        calls.append("fatsecret")
+        return None
+
+    async def usda(barcode, client):
+        calls.append("usda")
+        return None
+
+    monkeypatch.setattr(pl, "lookup_open_food_facts", off)
+    monkeypatch.setattr(pl, "lookup_fatsecret", fatsecret)
+    monkeypatch.setattr(pl, "lookup_usda_fdc", usda)
+
+    async with AsyncClient() as client:
+        result = await pl.lookup_product("7501234567890", client)
+
+    assert result is None
+    # All three tried, in the documented order.
+    assert calls == ["off", "fatsecret", "usda"]
+
+
+async def test_fatsecret_hit_short_circuits_usda(monkeypatch):
+    from app.schemas.product import ProductCreate
+    from app.services import product_lookup as pl
+
+    calls: list[str] = []
+
+    async def off(barcode, client):
+        calls.append("off")
+        return None
+
+    async def fatsecret(barcode, client):
+        calls.append("fatsecret")
+        return ProductCreate(
+            barcode=barcode, name="Found via FatSecret", source="fatsecret"
+        )
+
+    async def usda(barcode, client):  # must NOT be reached
+        calls.append("usda")
+        raise AssertionError("USDA must not be consulted after a FatSecret hit")
+
+    monkeypatch.setattr(pl, "lookup_open_food_facts", off)
+    monkeypatch.setattr(pl, "lookup_fatsecret", fatsecret)
+    monkeypatch.setattr(pl, "lookup_usda_fdc", usda)
+
+    async with AsyncClient() as client:
+        result = await pl.lookup_product("7501234567890", client)
+
+    assert result is not None
+    assert result.source == "fatsecret"
+    assert calls == ["off", "fatsecret"]  # USDA never called
+
+
+# ---------------------------------------------------------------------------
 # Endpoint contract tests. These PIN the request paths, query-param names, and
 # response shapes the iOS client depends on (see ios ProductServiceTests):
 #   GET /api/v1/products/search?q=<text>   -> {"results": [ProductResponse]}
@@ -443,9 +512,10 @@ async def test_manual_row_does_not_shadow_external_lookup(
     resolved, the lookup must still consult external sources and return (and
     upsert) the verified external data, NOT the manual fake.
     """
+    from sqlalchemy import select as _select
+
     from app.models.product import Product as ProductModel
     from app.schemas.product import ProductCreate
-    from sqlalchemy import select as _select
 
     # User A poisons the cache with a manual row (fake 0 kcal).
     create = await auth_client.post(
@@ -567,10 +637,12 @@ async def test_concurrent_barcode_lookup_inserts_one_row_no_500(
     """Concurrent uncached barcode GETs converge on one row with no 500."""
     import asyncio
 
+    from sqlalchemy import func
+    from sqlalchemy import select as _select
+
     from app.main import app
     from app.models.product import Product as ProductModel
     from app.schemas.product import ProductCreate
-    from sqlalchemy import func, select as _select
 
     verified = ProductCreate(
         barcode="7501999000010",
@@ -631,9 +703,11 @@ async def test_concurrent_create_same_barcode_no_500(auth_token, db_session):
     """Concurrent creates of the same barcode: one 201, the rest 409, no 500."""
     import asyncio
 
+    from sqlalchemy import func
+    from sqlalchemy import select as _select
+
     from app.main import app
     from app.models.product import Product as ProductModel
-    from sqlalchemy import func, select as _select
 
     clients = [
         AsyncClient(

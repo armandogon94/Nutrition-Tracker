@@ -164,16 +164,24 @@ async def lookup_fatsecret(barcode: str, client: httpx.AsyncClient) -> ProductCr
 
 
 async def lookup_product(barcode: str, client: httpx.AsyncClient) -> ProductCreate | None:
-    """Cascade through all sources: OFF -> USDA -> FatSecret."""
+    """Cascade through all sources: OFF -> FatSecret -> USDA FDC.
+
+    Flash G2: FatSecret is queried BEFORE USDA FDC. FatSecret has a real
+    barcode endpoint with a ~90% hit rate, whereas USDA FDC has no barcode
+    endpoint at all — it only does text search on the barcode string, which is
+    slow and usually a false/empty match. Querying the high-hit-rate barcode
+    source first matches the documented order in CLAUDE.md (OFF -> FatSecret ->
+    USDA FDC) and avoids paying for a near-useless USDA round-trip on every miss.
+    """
     result = await lookup_open_food_facts(barcode, client)
     if result:
         return result
 
-    result = await lookup_usda_fdc(barcode, client)
+    result = await lookup_fatsecret(barcode, client)
     if result:
         return result
 
-    result = await lookup_fatsecret(barcode, client)
+    result = await lookup_usda_fdc(barcode, client)
     if result:
         return result
 
