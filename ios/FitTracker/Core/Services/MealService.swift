@@ -23,15 +23,42 @@
 import Foundation
 import SwiftData
 
+/// Whether a logged item made it all the way to the backend or is sitting
+/// durably in the offline queue waiting for connectivity. Drives honest UX
+/// copy ("saved" vs "saved locally — pending sync") instead of a blanket
+/// success banner.
+enum MealSyncState: Sendable, Equatable {
+    case synced        // backend confirmed the write
+    case pendingSync   // saved locally + durably enqueued; will replay on reconnect
+}
+
+/// Result of an optimistic log: the inserted item plus its sync state. A
+/// THROW from `logItemReturningOutcome` means the LOCAL write failed (true
+/// "failed to save"); a `.pendingSync` outcome is a success from the user's
+/// standpoint because the mutation is durable.
+struct MealLogOutcome: Sendable, Equatable {
+    let item: MealItem
+    let state: MealSyncState
+}
+
 @MainActor
 final class MealService: MealLoggingServiceProtocol {
 
     private let api: APIClient
     private let context: ModelContext
+    /// Shared durable queue (the SAME instance SyncManager drains). When a
+    /// backend round-trip fails, the write is enqueued here so it survives an
+    /// app kill and replays on reconnect. Defaults to `OfflineQueue.shared`
+    /// so the shipped app (wired via `MockServiceContainer.production()`)
+    /// enqueues without extra plumbing; tests inject an isolated queue. Pass
+    /// `nil` to opt out entirely (a failed write then only stays
+    /// `pendingSync` locally).
+    private let offlineQueue: OfflineQueue?
 
-    init(api: APIClient, context: ModelContext) {
+    init(api: APIClient, context: ModelContext, offlineQueue: OfflineQueue? = .shared) {
         self.api = api
         self.context = context
+        self.offlineQueue = offlineQueue
     }
 
     // MARK: - Date encoding
@@ -51,15 +78,34 @@ final class MealService: MealLoggingServiceProtocol {
 
     // MARK: - Logging
 
-    /// Optimistic insert + fire-and-forget sync. Returns synchronously
-    /// after the local insert; the network call awaits completion only
-    /// so we can flip pendingSync. Any error is rethrown so the caller
-    /// can show a "saved locally, will retry" toast.
+    /// Protocol entry point. Optimistically inserts locally, then tries the
+    /// backend. Returns the inserted item. Throws ONLY when the local write
+    /// fails (genuine "failed to save"); a backend failure is NOT an error
+    /// here because the write is durably enqueued and will replay — callers
+    /// wanting to distinguish synced-vs-pending should use
+    /// `logItemReturningOutcome`.
     func logItem(product: Product,
                  servings: Double,
                  mealType: MealType,
                  mealDate: Date,
                  userId: UUID) async throws -> MealItem {
+        try await logItemReturningOutcome(
+            product: product, servings: servings, mealType: mealType,
+            mealDate: mealDate, userId: userId
+        ).item
+    }
+
+    /// Optimistic insert + sync, surfacing whether the item synced or is
+    /// pending. The LOCAL insert happens first and any failure there throws
+    /// (the user genuinely lost the write). The backend POST then runs; on
+    /// failure we enqueue a durable `PendingMutation` and report
+    /// `.pendingSync` instead of throwing, so the UI can be honest rather
+    /// than claiming a blanket success.
+    func logItemReturningOutcome(product: Product,
+                                 servings: Double,
+                                 mealType: MealType,
+                                 mealDate: Date,
+                                 userId: UUID) async throws -> MealLogOutcome {
 
         // Reuse an existing Meal for (userId, mealType, mealDate-day) or
         // create one. We treat "same meal" as same calendar day per the
@@ -105,13 +151,17 @@ final class MealService: MealLoggingServiceProtocol {
         let entity = MealItemMapper.makeEntity(from: snapshot, pendingSync: true)
         entity.meal = parent
         parent.items.append(entity)
+        // A failure HERE is a true "failed to save" — the optimistic local
+        // write didn't even persist — so it propagates to the caller.
         try context.save()
 
-        // Fire the backend POST. If it fails we surface the error but
-        // leave pendingSync=true so the row can be retried.
+        // Fire the backend POST. The `client_item_id` (the snapshot's local
+        // id) makes the write idempotent: a queued retry sends the same id
+        // and the backend returns the existing row instead of duplicating.
+        let dateOnly = Self.dateOnly.string(from: mealDate)
         let body = LogMealItemRequest(
             meal_type: mealType.rawValue,
-            meal_date: Self.dateOnly.string(from: mealDate),
+            meal_date: dateOnly,
             product_id: product.id.uuidString,
             product_name: product.name,
             brand: product.brand,
@@ -126,16 +176,34 @@ final class MealService: MealLoggingServiceProtocol {
             let _: MealDTO = try await api.post("/api/v1/meals/log", body: body)
             entity.pendingSync = false
             entity.lastSyncedAt = .now
-            parent.pendingSync = false
-            parent.lastSyncedAt = .now
-            try context.save()
+            // Only clear the parent's flag if every sibling item is synced;
+            // otherwise an earlier pending item would be wrongly marked done.
+            if parent.items.allSatisfy({ !$0.pendingSync }) {
+                parent.pendingSync = false
+                parent.lastSyncedAt = .now
+            }
+            try? context.save()
+            return MealLogOutcome(item: snapshot, state: .synced)
         } catch {
-            // Leave pendingSync=true; the offline-retry job (Slice 2.x)
-            // will sweep these on next launch / reachability event.
-            throw error
+            // Backend unreachable / rejected. Leave pendingSync=true and
+            // enqueue a durable mutation so the write is NOT lost — it
+            // replays on reconnect / next launch. Reporting `.pendingSync`
+            // (not throwing) is what lets the UI say "saved locally" honestly.
+            await offlineQueue?.enqueue(.logMealItem(LogMealItemPayload(
+                clientItemId: snapshot.id,
+                mealType: mealType.rawValue,
+                mealDate: dateOnly,
+                productId: product.id,
+                productName: product.name,
+                brand: product.brand,
+                servings: servings,
+                calories: snapshot.calories,
+                proteinG: snapshot.proteinG,
+                carbsG: snapshot.carbsG,
+                fatG: snapshot.fatG
+            )))
+            return MealLogOutcome(item: snapshot, state: .pendingSync)
         }
-
-        return snapshot
     }
 
     // MARK: - Reads
@@ -184,7 +252,14 @@ final class MealService: MealLoggingServiceProtocol {
         guard let item = try context.fetch(descriptor).first else { return }
         context.delete(item)
         try context.save()
-        // Best-effort backend delete; swallow errors so offline UX works.
-        _ = try? await api.delete("/api/v1/meals/items/\(itemId.uuidString)")
+        // Try the backend delete. On failure, enqueue a durable mutation so
+        // the deletion is replayed on reconnect rather than silently lost —
+        // the by-id delete route is idempotent, so the replay is safe even if
+        // the row was already removed server-side.
+        do {
+            try await api.delete("/api/v1/meals/items/\(itemId.uuidString)")
+        } catch {
+            await offlineQueue?.enqueue(.deleteMealItem(DeleteMealItemPayload(id: itemId)))
+        }
     }
 }
