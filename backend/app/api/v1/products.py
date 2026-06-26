@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy import or_, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -13,6 +14,15 @@ from app.schemas.product import ProductCreate, ProductResponse, ProductSearchRes
 from app.services.product_lookup import lookup_product
 
 router = APIRouter()
+
+# A1: a barcode row sourced from a real external provider is trusted as the
+# authoritative shared-catalog answer. A "manual" row is user-supplied and must
+# never shadow/poison the global barcode lookup for other users — it stays
+# usable to its creator but is treated as a non-authoritative cache miss when a
+# different user resolves the same barcode.
+_TRUSTED_SOURCES: frozenset[str] = frozenset(
+    {"open_food_facts", "fatsecret", "usda", "seed"}
+)
 
 
 def escape_like(s: str) -> str:
@@ -70,10 +80,15 @@ async def lookup_product_by_barcode(
     ``GET /{product_id}`` (which validates a UUID and would 422 on a numeric
     barcode). Rate-limited at 60/minute per user or IP.
     """
-    # 1. Check local DB cache
+    # 1. Check local DB cache.
     result = await db.execute(select(Product).where(Product.barcode == barcode))
     cached = result.scalar_one_or_none()
-    if cached:
+
+    # A1: only a TRUSTED (external-sourced) cache row is authoritative. A manual
+    # row is user-supplied and must not shadow the global lookup, so we fall
+    # through to external sources and let a verified row win. We still keep the
+    # manual row as a last-resort answer if no external source recognizes it.
+    if cached is not None and cached.source in _TRUSTED_SOURCES:
         return cached
 
     # 2. Cascade through external APIs using the app-scoped shared client.
@@ -81,31 +96,78 @@ async def lookup_product_by_barcode(
     product_data = await lookup_product(barcode, client)
 
     if not product_data:
+        if cached is not None:
+            # No external source recognizes it; the manual row is all we have.
+            return cached
         raise HTTPException(status_code=404, detail="Product not found in any source")
 
-    # 3. Cache in local DB
-    product = Product(**product_data.model_dump())
-    db.add(product)
-    await db.flush()
-    await db.refresh(product)
+    # 3. Upsert the verified external row, preferring external-source data. A
+    # concurrent first-resolution of the same barcode (B3 race) or a pre-existing
+    # manual row both resolve via ON CONFLICT (barcode): a manual row is upgraded
+    # to the trusted external data; a concurrent insert never raises. We then
+    # re-select the single canonical row by barcode.
+    values = product_data.model_dump()
+    update_cols = {k: v for k, v in values.items() if k != "barcode"}
+    await db.execute(
+        pg_insert(Product)
+        .values(**values)
+        .on_conflict_do_update(index_elements=["barcode"], set_=update_cols)
+    )
+    # The upsert is a Core statement that bypasses the ORM unit of work, so any
+    # row already loaded into this session's identity map (the manual `cached`
+    # row) is now stale. populate_existing forces the re-select to overwrite it
+    # with the freshly-upserted (external) column values.
+    refreshed = await db.execute(
+        select(Product)
+        .where(Product.barcode == barcode)
+        .execution_options(populate_existing=True)
+    )
+    product = refreshed.scalar_one_or_none()
+    if product is None:  # pragma: no cover - row must exist after upsert
+        raise HTTPException(status_code=500, detail="Failed to resolve product")
     return product
 
 
 @router.post("", response_model=ProductResponse, status_code=201)
 async def create_product(
-    data: ProductCreate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
+    data: ProductCreate,
+    user_id: UUID = Depends(get_current_user_id),
+    db: AsyncSession = Depends(get_db),
 ) -> Product:
-    """Create a manual product entry."""
-    # Check for existing barcode
-    result = await db.execute(select(Product).where(Product.barcode == data.barcode))
-    existing = result.scalar_one_or_none()
-    if existing:
-        raise HTTPException(status_code=409, detail="Product with this barcode already exists")
+    """Create a manual product entry owned by the caller.
 
-    product = Product(**data.model_dump())
-    db.add(product)
-    await db.flush()
-    await db.refresh(product)
+    A1: the client cannot inject a trusted ``source`` to poison the shared
+    catalog — we IGNORE any client-supplied ``source`` and force
+    ``source="manual"``, stamping ``created_by_user_id`` with the caller. A
+    manual row never shadows the authoritative barcode lookup for other users.
+
+    B3: barcode creation is conflict-safe. ``INSERT ... ON CONFLICT (barcode) DO
+    NOTHING`` never raises under a concurrent first-create, so the session is
+    never poisoned; if the row already exists we return a deterministic 409.
+    """
+    values = data.model_dump()
+    # Strip client control of trust-bearing fields.
+    values["source"] = "manual"
+    values["created_by_user_id"] = user_id
+
+    inserted_id = (
+        await db.execute(
+            pg_insert(Product)
+            .values(**values)
+            .on_conflict_do_nothing(index_elements=["barcode"])
+            .returning(Product.id)
+        )
+    ).scalar_one_or_none()
+
+    if inserted_id is None:
+        # Lost the race or the barcode already existed — deterministic 409.
+        raise HTTPException(
+            status_code=409, detail="Product with this barcode already exists"
+        )
+
+    product = await db.get(Product, inserted_id)
+    if product is None:  # pragma: no cover - row must exist after insert
+        raise HTTPException(status_code=500, detail="Failed to resolve product")
     return product
 
 

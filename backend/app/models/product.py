@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import String, Text
+from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -26,5 +26,15 @@ class Product(Base):
     fiber_g: Mapped[float] = mapped_column(default=0.0)
     source: Mapped[str] = mapped_column(String(50), default="manual")
     image_url: Mapped[str | None] = mapped_column(Text)
+    # A1: who created this row when source="manual". NULL for trusted catalog
+    # rows imported from external sources (open_food_facts / fatsecret / usda /
+    # seed). Used to keep user-supplied manual rows from poisoning the shared
+    # barcode lookup for everyone else (a manual row is usable to its creator but
+    # never shadows an authoritative external row). MAIN owns the migration that
+    # adds the matching DB column/index; declared here so metadata.create_all
+    # covers it under tests.
+    created_by_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True, default=None
+    )
     created_at: Mapped[datetime] = mapped_column(default=_utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(onupdate=_utcnow)

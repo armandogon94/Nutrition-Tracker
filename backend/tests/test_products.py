@@ -1,5 +1,5 @@
 import pytest
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
 
 from app.services.product_lookup import (
     lookup_open_food_facts,
@@ -391,3 +391,275 @@ async def test_health_check(client):
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "healthy"
+
+
+# ---------------------------------------------------------------------------
+# A1 — global product-catalog poisoning (Codex A1 / Flash A1)
+#
+# Any authenticated user could POST /products with a real barcode + fake macros
+# + source="usda" and have it served as the authoritative shared answer to every
+# other user. The create path must (a) ignore client-supplied `source` and force
+# "manual", stamping created_by_user_id, and (b) a manual row must NOT shadow an
+# external lookup for other users.
+# ---------------------------------------------------------------------------
+
+
+async def test_create_product_ignores_client_source(auth_client, db_session):
+    """A1: a client cannot set a trusted `source`; the row is forced to manual."""
+    from app.models.product import Product as ProductModel
+
+    resp = await auth_client.post(
+        "/api/v1/products",
+        json={
+            "barcode": "7501999000001",
+            "name": "Fake Zero-Cal Soda",
+            "calories": 0.0,
+            "source": "usda",  # attacker tries to look authoritative
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    body = resp.json()
+    # The response must report the server-forced source, not the client's.
+    assert body["source"] == "manual"
+
+    # And the persisted row is stamped with the creator + manual source.
+    from sqlalchemy import select as _select
+
+    row = (
+        await db_session.execute(
+            _select(ProductModel).where(ProductModel.barcode == "7501999000001")
+        )
+    ).scalar_one()
+    assert row.source == "manual"
+    assert str(row.created_by_user_id) == "00000000-0000-0000-0000-000000000099"
+
+
+async def test_manual_row_does_not_shadow_external_lookup(
+    auth_client, monkeypatch, db_session
+):
+    """A1: a cached manual row must not poison the global barcode lookup.
+
+    User A creates a manual row with fake macros. When the barcode is later
+    resolved, the lookup must still consult external sources and return (and
+    upsert) the verified external data, NOT the manual fake.
+    """
+    from app.models.product import Product as ProductModel
+    from app.schemas.product import ProductCreate
+    from sqlalchemy import select as _select
+
+    # User A poisons the cache with a manual row (fake 0 kcal).
+    create = await auth_client.post(
+        "/api/v1/products",
+        json={
+            "barcode": "7501999000002",
+            "name": "Poisoned Manual",
+            "calories": 0.0,
+            "protein_g": 0.0,
+            "source": "manual",
+        },
+    )
+    assert create.status_code == 201, create.text
+
+    # External source has the real, verified data.
+    verified = ProductCreate(
+        barcode="7501999000002",
+        name="Real Cola",
+        brand="Coca-Cola",
+        serving_size_g=355.0,
+        calories=140.0,
+        protein_g=0.0,
+        carbs_g=39.0,
+        fat_g=0.0,
+        fiber_g=0.0,
+        source="open_food_facts",
+    )
+
+    async def mock_lookup(barcode, http_client):
+        return verified
+
+    monkeypatch.setattr("app.api.v1.products.lookup_product", mock_lookup)
+
+    resp = await auth_client.get("/api/v1/products/barcode/7501999000002")
+    assert resp.status_code == 200
+    data = resp.json()
+    # External data wins; the manual poison is NOT served.
+    assert data["source"] == "open_food_facts"
+    assert data["calories"] == 140.0
+    assert data["name"] == "Real Cola"
+
+    # The persisted row was upgraded to the trusted external data (no duplicate).
+    rows = (
+        await db_session.execute(
+            _select(ProductModel).where(ProductModel.barcode == "7501999000002")
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].source == "open_food_facts"
+    assert rows[0].calories == 140.0
+
+
+async def test_trusted_cache_row_is_served_without_external_call(
+    auth_client, db_session, monkeypatch
+):
+    """A trusted (external-sourced) cache row is authoritative and short-circuits
+    the external cascade."""
+    db_session.add(
+        _make_product(
+            barcode="7501999000003",
+            name="Trusted Avena",
+            source="open_food_facts",
+            calories=120.0,
+        )
+    )
+    await db_session.commit()
+
+    async def _boom(barcode, http_client):  # must NOT be called
+        raise AssertionError("external lookup should not run on a trusted cache hit")
+
+    monkeypatch.setattr("app.api.v1.products.lookup_product", _boom)
+
+    resp = await auth_client.get("/api/v1/products/barcode/7501999000003")
+    assert resp.status_code == 200
+    assert resp.json()["calories"] == 120.0
+
+
+async def test_manual_only_barcode_falls_back_when_no_external_hit(
+    auth_client, monkeypatch
+):
+    """If the only cache row is manual AND no external source recognizes the
+    barcode, we still return the manual row (it's the creator's data) rather
+    than a hard 404."""
+    create = await auth_client.post(
+        "/api/v1/products",
+        json={
+            "barcode": "7501999000004",
+            "name": "Homemade Tamal",
+            "calories": 210.0,
+            "source": "manual",
+        },
+    )
+    assert create.status_code == 201, create.text
+
+    async def mock_lookup(barcode, http_client):
+        return None  # no external source recognizes it
+
+    monkeypatch.setattr("app.api.v1.products.lookup_product", mock_lookup)
+
+    resp = await auth_client.get("/api/v1/products/barcode/7501999000004")
+    assert resp.status_code == 200
+    assert resp.json()["name"] == "Homemade Tamal"
+
+
+# ---------------------------------------------------------------------------
+# B3 — barcode cache insert race
+#
+# Two concurrent GETs for an uncached barcode both miss the cache, both call the
+# external lookup, and both try to INSERT the same unique barcode. The loser
+# previously hit an unhandled IntegrityError -> 500. The upsert (ON CONFLICT
+# (barcode)) must converge both on a single row with no 500. Likewise the manual
+# create path must return a deterministic 409 on conflict, never a 500.
+# ---------------------------------------------------------------------------
+
+
+async def test_concurrent_barcode_lookup_inserts_one_row_no_500(
+    auth_token, db_session, monkeypatch
+):
+    """Concurrent uncached barcode GETs converge on one row with no 500."""
+    import asyncio
+
+    from app.main import app
+    from app.models.product import Product as ProductModel
+    from app.schemas.product import ProductCreate
+    from sqlalchemy import func, select as _select
+
+    verified = ProductCreate(
+        barcode="7501999000010",
+        name="Race Cola",
+        brand="Coca-Cola",
+        serving_size_g=355.0,
+        calories=140.0,
+        protein_g=0.0,
+        carbs_g=39.0,
+        fat_g=0.0,
+        fiber_g=0.0,
+        source="open_food_facts",
+    )
+
+    async def mock_lookup(barcode, http_client):
+        return verified
+
+    monkeypatch.setattr("app.api.v1.products.lookup_product", mock_lookup)
+
+    clients = [
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        for _ in range(6)
+    ]
+    try:
+        responses = await asyncio.gather(
+            *(c.get("/api/v1/products/barcode/7501999000010") for c in clients)
+        )
+    finally:
+        await asyncio.gather(*(c.aclose() for c in clients))
+
+    statuses = [r.status_code for r in responses]
+    assert all(s == 200 for s in statuses), statuses
+
+    # Exactly one row persisted for that barcode.
+    count = await db_session.scalar(
+        _select(func.count())
+        .select_from(ProductModel)
+        .where(ProductModel.barcode == "7501999000010")
+    )
+    assert count == 1
+
+
+async def test_create_product_duplicate_barcode_returns_409_not_500(auth_client):
+    """A duplicate manual create is a deterministic 409, not a 500."""
+    body = {"barcode": "7501999000020", "name": "Dup", "calories": 10.0}
+    first = await auth_client.post("/api/v1/products", json=body)
+    assert first.status_code == 201, first.text
+
+    second = await auth_client.post("/api/v1/products", json=body)
+    assert second.status_code == 409
+
+
+async def test_concurrent_create_same_barcode_no_500(auth_token, db_session):
+    """Concurrent creates of the same barcode: one 201, the rest 409, no 500."""
+    import asyncio
+
+    from app.main import app
+    from app.models.product import Product as ProductModel
+    from sqlalchemy import func, select as _select
+
+    clients = [
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        for _ in range(5)
+    ]
+    body = {"barcode": "7501999000021", "name": "Concurrent Dup", "calories": 5.0}
+    try:
+        responses = await asyncio.gather(
+            *(c.post("/api/v1/products", json=body) for c in clients)
+        )
+    finally:
+        await asyncio.gather(*(c.aclose() for c in clients))
+
+    statuses = sorted(r.status_code for r in responses)
+    # Exactly one creator, no 500s; everyone else gets a clean 409.
+    assert 500 not in statuses, statuses
+    assert statuses.count(201) == 1, statuses
+    assert all(s in (201, 409) for s in statuses), statuses
+
+    count = await db_session.scalar(
+        _select(func.count())
+        .select_from(ProductModel)
+        .where(ProductModel.barcode == "7501999000021")
+    )
+    assert count == 1

@@ -6,6 +6,16 @@ from app.core.datetime_utils import UTCDateTime
 
 
 class ProductCreate(BaseModel):
+    """Product payload.
+
+    Used in two roles: (1) the internal shape that ``product_lookup`` builds for
+    a verified external row (where ``source`` is meaningful), and (2) the body of
+    the user-facing ``POST /products``. A1: on the user-facing create path the
+    route IGNORES any client-supplied ``source`` and forces ``source="manual"``
+    plus ``created_by_user_id``, so a client cannot inject a trusted source to
+    poison the shared catalog. The pattern below only bounds the allowed values.
+    """
+
     barcode: str = Field(min_length=1, max_length=50)
     name: str = Field(min_length=1, max_length=255)
     brand: str | None = Field(default=None, max_length=255)
@@ -15,7 +25,10 @@ class ProductCreate(BaseModel):
     carbs_g: float = Field(default=0.0, ge=0, le=9999)
     fat_g: float = Field(default=0.0, ge=0, le=9999)
     fiber_g: float = Field(default=0.0, ge=0, le=9999)
-    source: str = Field(default="manual", pattern="^(manual|open_food_facts|usda|fatsecret|seed)$")
+    source: str = Field(
+        default="manual",
+        pattern="^(manual|open_food_facts|usda|fatsecret|seed)$",
+    )
     image_url: str | None = Field(default=None, max_length=2048)
 
 
