@@ -109,6 +109,54 @@ struct MealServiceLostWriteTests {
     }
 
     @MainActor
+    @Test("delete: a failed local save removes the queued tombstone before rethrowing")
+    func delete_localSaveFailure_removesTombstoneAndRethrows() async throws {
+        // Codex review #5 P2: if the optimistic local delete's save() throws,
+        // the tombstone queued just before it must NOT survive — otherwise a
+        // later replay deletes the server item while the local row is still
+        // present. The method must remove the tombstone and rethrow.
+        let session = MockURLProtocol.makeSession()
+        let api = APIClient(baseURL: URL(string: "http://test.local")!,
+                            tokenProvider: nil, session: session)
+        let container = try PersistenceController.makeInMemory().container
+        let ctx = ModelContext(container)
+        let queue = OfflineQueue(storageKey: "q",
+                                 defaults: UserDefaults(suiteName: "test.lostwrite.\(UUID().uuidString)")!)
+        // Inject a save hook that fails ONLY the local delete save.
+        struct SaveBlewUp: Error {}
+        let sut = MealService(api: api, context: ctx, offlineQueue: queue,
+                              saveHook: { _ in throw SaveBlewUp() })
+
+        let userId = UUID()
+        let meal = MealEntity(id: UUID(), userId: userId,
+                              mealType: MealType.lunch.rawValue, mealDate: .now,
+                              pendingSync: false, lastSyncedAt: .now)
+        let itemId = UUID()
+        let item = MealItemEntity(id: itemId, productId: UUID(), productName: "Pan",
+                                  brand: nil, servings: 1, calories: 80,
+                                  proteinG: 3, carbsG: 15, fatG: 1)
+        meal.items = [item]
+        ctx.insert(meal)
+        // Seed via the real context (the hook only intercepts MealService saves).
+        try ctx.save()
+
+        // The network must NEVER be reached: the local save fails first.
+        let hits = AtomicCounter()
+        MockURLProtocol.handler = { req in
+            hits.increment()
+            return (HTTPURLResponse(url: req.url!, statusCode: 204, httpVersion: "1.1", headerFields: nil)!, Data())
+        }
+
+        await #expect(throws: (any Error).self) {
+            try await sut.deleteItem(itemId, fromMeal: meal.id)
+        }
+
+        #expect(await queue.peekAll().isEmpty,
+                "a failed local delete must NOT leave a tombstone that could delete the server row later")
+        #expect(hits.value == 0, "the backend delete must not run when the local delete failed")
+    }
+
+    @MainActor
     @Test("delete on success leaves no tombstone queued")
     func delete_successLeavesNoTombstone() async throws {
         let (sut, ctx, queue) = try makeSUT()
