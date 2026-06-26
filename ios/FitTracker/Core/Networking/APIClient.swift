@@ -121,6 +121,33 @@ actor APIClient {
         _ = try await performRaw(req)
     }
 
+    // MARK: - Replay API (auth-guarded)
+
+    /// POST for offline-queue REPLAY only. Identical to `post`, but takes an
+    /// `authGuard` that `APIClient` re-evaluates against the LIVE auth session
+    /// BOTH before the initial send AND before swapping in a refreshed token on
+    /// a 401. If the guard returns `false` — the signed-in user/session
+    /// generation no longer matches the one captured when the replay began —
+    /// the request is ABORTED with `APIError.cancelled` and never sent, so a
+    /// queued mutation owned by user A can never travel under user B's bearer
+    /// across a sign-out/account-switch race (Codex review #5 P0). The caller
+    /// (`SyncManager`) leaves the mutation queued on `.cancelled`.
+    func post<T: Decodable & Sendable, B: Encodable & Sendable>(
+        _ path: String, body: B, authGuard: @escaping @Sendable () async -> Bool
+    ) async throws -> T {
+        let req = try buildRequest(path: path, method: "POST", query: [:], body: body)
+        return try await perform(req, authGuard: authGuard)
+    }
+
+    /// DELETE for offline-queue REPLAY only. Auth-guarded exactly like the
+    /// replay `post` above: the guard is re-checked before send and before a
+    /// 401 refresh retry, aborting with `APIError.cancelled` if the auth
+    /// session changed mid-replay (Codex review #5 P0).
+    func delete(_ path: String, authGuard: @escaping @Sendable () async -> Bool) async throws {
+        let req = try buildRequest(path: path, method: "DELETE", query: [:], body: nil as EmptyBody?)
+        _ = try await performRaw(req, authGuard: authGuard)
+    }
+
     /// POST a pre-encoded multipart/form-data body, decoded to `T`.
     ///
     /// Added so multipart consumers (photo recognition) share the one
@@ -195,8 +222,11 @@ actor APIClient {
 
     // MARK: - Dispatch
 
-    private func perform<T: Decodable & Sendable>(_ req: URLRequest) async throws -> T {
-        let (data, _) = try await performRaw(req)
+    private func perform<T: Decodable & Sendable>(
+        _ req: URLRequest,
+        authGuard: (@Sendable () async -> Bool)? = nil
+    ) async throws -> T {
+        let (data, _) = try await performRaw(req, authGuard: authGuard)
         do {
             return try decoder.decode(T.self, from: data)
         } catch {
@@ -207,8 +237,22 @@ actor APIClient {
     /// - Parameter allowRefresh: when `true` (the default), a 401 triggers a
     ///   single refresh + retry. The retry calls back in with `false` so it
     ///   can never refresh again — that one-shot flag is what bounds the loop.
+    /// - Parameter authGuard: replay-only cancellation boundary. When provided
+    ///   (offline-queue replay), it is evaluated against the LIVE auth session
+    ///   immediately before the request is sent. A `false` result aborts with
+    ///   `APIError.cancelled` so a mutation captured under user A is never sent
+    ///   after the session changed to B (Codex review #5 P0). The same guard is
+    ///   threaded into `refreshAndRetry` so the 401 path is covered too.
     private func performRaw(_ req: URLRequest,
-                            allowRefresh: Bool = true) async throws -> (Data, HTTPURLResponse) {
+                            allowRefresh: Bool = true,
+                            authGuard: (@Sendable () async -> Bool)? = nil) async throws -> (Data, HTTPURLResponse) {
+        // Last-moment auth check before the bytes leave the device: if the
+        // signed-in user/session generation no longer matches the one captured
+        // when this replay began, do NOT send under the new identity.
+        if let authGuard, await authGuard() == false {
+            throw APIError.cancelled
+        }
+
         let data: Data
         let response: URLResponse
         do {
@@ -236,7 +280,7 @@ actor APIClient {
             // allowed (not already a retry) and a coordinator is configured;
             // otherwise fall through to the legacy `.unauthorized`.
             if allowRefresh, let refresher = refresherBox.get() {
-                return try await refreshAndRetry(req, refresher: refresher)
+                return try await refreshAndRetry(req, refresher: refresher, authGuard: authGuard)
             }
             throw APIError.unauthorized
         case 404:
@@ -258,7 +302,8 @@ actor APIClient {
     /// `await` here is the only suspension, and the `false` flag guarantees a
     /// retried request cannot recurse back into this method.
     private func refreshAndRetry(_ original: URLRequest,
-                                 refresher: any TokenRefreshing) async throws -> (Data, HTTPURLResponse) {
+                                 refresher: any TokenRefreshing,
+                                 authGuard: (@Sendable () async -> Bool)? = nil) async throws -> (Data, HTTPURLResponse) {
         let newToken: String
         do {
             newToken = try await refresher.refreshAccessToken()
@@ -266,9 +311,18 @@ actor APIClient {
             // Refresh failed → the session is unrecoverable.
             throw APIError.unauthorized
         }
+        // The refresh itself may have raced an account switch (it awaited the
+        // refresher, during which sign-out/sign-in could complete). Re-check
+        // the replay guard BEFORE we swap in the freshly-minted token: if the
+        // session changed, the new Bearer belongs to a DIFFERENT user, so
+        // abort rather than retry A's mutation under B's token (Codex review #5
+        // P0). `performRaw` re-checks the guard once more before sending too.
+        if let authGuard, await authGuard() == false {
+            throw APIError.cancelled
+        }
         var retryReq = original
         retryReq.setValue("Bearer \(newToken)", forHTTPHeaderField: "Authorization")
-        return try await performRaw(retryReq, allowRefresh: false)
+        return try await performRaw(retryReq, allowRefresh: false, authGuard: authGuard)
     }
 
     private static func extractDetail(from data: Data) -> String? {

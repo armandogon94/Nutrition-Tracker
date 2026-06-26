@@ -87,6 +87,15 @@ struct FitTrackerApp: App {
         // closure reads the LIVE current user on every drain, not a snapshot.
         let container = services
         syncManager.setCurrentUserProvider { container.auth.currentUser?.id }
+        // Bind replay to the auth-session generation too (Codex review #5 P0):
+        // the request-level guard aborts a queued write if the session changed
+        // (sign-out, or account switch A→B) between drain start and the actual
+        // send/401-refresh. Only the concrete AuthService exposes the counter;
+        // the all-mock path has no generation, so replay there guards on owner
+        // id alone (harmless: the mock queue is empty).
+        if let authService = container.auth as? AuthService {
+            syncManager.setSessionGenerationProvider { authService.sessionGeneration }
+        }
         syncManager.startObservingConnectivity()
     }
 }

@@ -38,6 +38,16 @@ final class SyncManager {
     /// the safe default: better to hold writes than send them unowned.
     private var currentUserProvider: (@MainActor () -> UUID?)?
 
+    /// Reads the LIVE auth-session generation (`AuthService.sessionGeneration`).
+    /// Captured alongside the owner when a replay begins so the request-level
+    /// auth guard can detect a sign-out / account-switch that happens mid-drain
+    /// — even a re-login as the SAME user bumps the generation (Codex review #5
+    /// P0). Optional: when unset, replay falls back to owner-only guarding
+    /// (the Wave-5 behavior), which is still safe for the cross-user case but
+    /// does not catch the same-user re-auth race. FitTrackerApp wires this to
+    /// `AuthService.sessionGeneration`.
+    private var sessionGenerationProvider: (@MainActor () -> Int)?
+
     init(api: APIClient = APIClient(),
          queue: OfflineQueue = OfflineQueue(),
          reachability: Reachability = .shared,
@@ -71,6 +81,15 @@ final class SyncManager {
     /// AuthService) so SyncManager stays free of a concrete auth dependency.
     func setCurrentUserProvider(_ provider: @escaping @MainActor () -> UUID?) {
         currentUserProvider = provider
+    }
+
+    /// Register the source of truth for the current auth-session generation so
+    /// replay can bind each mutation to the exact session it was captured under
+    /// (Codex review #5 P0). FitTrackerApp calls this with a closure reading
+    /// `AuthService.sessionGeneration`. When unset, `drainNow` guards on owner
+    /// id alone (Wave-5 behavior).
+    func setSessionGenerationProvider(_ provider: @escaping @MainActor () -> Int) {
+        sessionGenerationProvider = provider
     }
 
     /// Call once at app launch (FitTrackerApp). Wires the
@@ -125,10 +144,39 @@ final class SyncManager {
         }
         guard let ownerId = currentUserId else { return 0 }
 
+        // Capture the auth-session generation at the moment replay begins, so
+        // each queued write is bound to the exact session it will be sent
+        // under. The per-request `authGuard` (re-checked by APIClient before
+        // the initial send AND before swapping a refreshed token on a 401)
+        // compares the LIVE owner+generation to these captured values; a
+        // sign-out or account switch A→B that lands mid-drain flips one of
+        // them, aborting the send so A's mutation is never transmitted under
+        // B's bearer (Codex review #5 P0). `nil` generation provider → fall
+        // back to owner-only guarding (still safe for the cross-user case).
+        let userProvider = currentUserProvider
+        let genProvider = sessionGenerationProvider
+        let capturedGeneration = genProvider?()
+
         // Snapshot before/after so we know exactly which mutations flushed.
         let before = await queue.peekAll()
         let drained = await queue.drain(ownedBy: ownerId) { mutation in
-            try await Self.execute(mutation, with: api)
+            // Re-evaluated on the MainActor against the live AuthService just
+            // before the bytes are sent (and again across a 401 refresh).
+            let authGuard: @Sendable () async -> Bool = {
+                await MainActor.run {
+                    let liveOwner = userProvider?()
+                    let liveGen = genProvider?()
+                    // Owner must still be the mutation's owner...
+                    guard liveOwner == mutation.ownerId else { return false }
+                    // ...and, when a generation provider exists, the session
+                    // must be the SAME one captured when the drain began.
+                    if let capturedGeneration {
+                        return liveGen == capturedGeneration
+                    }
+                    return true
+                }
+            }
+            try await Self.execute(mutation, with: api, authGuard: authGuard)
         }
         if drained > 0 {
             let stillQueued = Set(await queue.peekAll().map(\.id))
@@ -177,20 +225,26 @@ final class SyncManager {
     // MARK: - Mutation dispatcher
 
     private static func execute(_ mutation: PendingMutation,
-                                 with api: APIClient) async throws {
+                                 with api: APIClient,
+                                 authGuard: @escaping @Sendable () async -> Bool) async throws {
         switch mutation {
         case .logMealItem(let payload):
             // Replay the exact `POST /api/v1/meals/log` the optimistic write
             // would have sent. The body carries `client_item_id`, so the
             // backend dedupes a re-sent log and returns the existing item
             // instead of inserting a duplicate row — safe to retry forever.
+            // The auth-guarded overload aborts (without sending) if the auth
+            // session changed since the drain began (Codex review #5 P0).
             let _: MealDTO = try await api.post(mutation.endpoint,
-                                                body: payload.asRequest())
+                                                body: payload.asRequest(),
+                                                authGuard: authGuard)
 
         case .deleteMealItem:
             // `DELETE /api/v1/meals/items/{id}` is idempotent: deleting an
             // already-gone item returns 204, so a replayed delete is safe.
-            try await api.delete(mutation.endpoint)
+            // Auth-guarded so a stale-session replay never deletes under the
+            // wrong user's token.
+            try await api.delete(mutation.endpoint, authGuard: authGuard)
         }
     }
 }
