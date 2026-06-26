@@ -107,6 +107,48 @@ async def start_session(
                 return existing_session
             client_id = None  # collision with another user -> server-mint
 
+    # IDOR guard (Codex finding #5): a caller may only attach a program / day
+    # they can actually see. Without this, an authenticated user could store
+    # another user's PRIVATE program_id / program_day_id on their own session and
+    # later read its name back through GET /history (program_name / day_name).
+    #
+    #   - program_id      must be a preset (global) OR owned by the caller.
+    #   - program_day_id  must belong to that accessible program; supplying a day
+    #                     without a program (nothing to anchor ownership to) is
+    #                     rejected, as is a day from a different/unowned program.
+    program_id = payload.get("program_id")
+    program_day_id = payload.get("program_day_id")
+
+    if program_id is not None:
+        prog_result = await db.execute(
+            select(WorkoutProgram.id).where(
+                WorkoutProgram.id == program_id,
+                (WorkoutProgram.is_preset == True)  # noqa: E712
+                | (WorkoutProgram.user_id == user_id),
+            )
+        )
+        if prog_result.scalar_one_or_none() is None:
+            # Don't reveal whether the program exists for someone else: 404.
+            raise HTTPException(status_code=404, detail="Program not found")
+
+    if program_day_id is not None:
+        if program_id is None:
+            # A day with no program gives us nothing to scope ownership against.
+            raise HTTPException(
+                status_code=422,
+                detail="program_day_id requires a matching program_id",
+            )
+        day_result = await db.execute(
+            select(WorkoutProgramDay.id).where(
+                WorkoutProgramDay.id == program_day_id,
+                WorkoutProgramDay.program_id == program_id,
+            )
+        )
+        if day_result.scalar_one_or_none() is None:
+            raise HTTPException(
+                status_code=404, detail="Program day not found for this program"
+            )
+
     session_obj = WorkoutSession(user_id=user_id, **payload)
     if client_id is not None:
         session_obj.id = client_id
