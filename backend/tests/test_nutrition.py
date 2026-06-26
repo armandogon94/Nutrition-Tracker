@@ -127,6 +127,72 @@ async def test_daily_nutrition_scales_by_grams(auth_client, db_session, test_use
     assert data["total_protein_g"] == pytest.approx(25.0, rel=0.01)
 
 
+async def test_weekly_nutrition_multiple_days_aggregate(
+    auth_client, db_session, test_user
+):
+    """B12: data on several days in the range is aggregated per-day correctly
+    by the single grouped query (not collapsed or misattributed)."""
+    await _seed_meal_with_product(db_session, test_user.id, "2026-07-01")
+    await _seed_meal_with_product(db_session, test_user.id, "2026-07-03")
+
+    response = await auth_client.get(
+        "/api/v1/nutrition/weekly",
+        params={"start_date": "2026-07-01", "end_date": "2026-07-03"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert [d["nutrition_date"] for d in data] == [
+        "2026-07-01",
+        "2026-07-02",
+        "2026-07-03",
+    ]
+    # Day 1 and day 3 have the seeded meal; day 2 is zero-filled.
+    assert data[0]["total_calories"] == pytest.approx(330.0, rel=0.01)
+    assert data[1]["total_calories"] == 0.0
+    assert data[2]["total_calories"] == pytest.approx(330.0, rel=0.01)
+    assert data[0]["meals_count"] == 1
+    assert data[1]["meals_count"] == 0
+    assert data[2]["meals_count"] == 1
+
+
+async def test_weekly_nutrition_uses_single_grouped_query(
+    auth_client, db_session, test_user
+):
+    """B12 regression: the weekly endpoint must NOT loop one query per day.
+
+    Count the GROUP BY meal_date aggregate statements emitted while serving the
+    weekly endpoint. The old day-by-day loop issued one per day (e.g. 7); the
+    grouped implementation issues exactly one.
+    """
+    from sqlalchemy import event
+
+    import app.core.database as db_mod
+
+    await _seed_meal_with_product(db_session, test_user.id, "2026-08-01")
+
+    engine = db_mod.engine.sync_engine
+    grouped_selects: list[str] = []
+
+    def _before_cursor_execute(conn, cursor, statement, params, context, executemany):
+        normalized = " ".join(statement.lower().split())
+        if "from meals" in normalized and "group by" in normalized:
+            grouped_selects.append(normalized)
+
+    event.listen(engine, "before_cursor_execute", _before_cursor_execute)
+    try:
+        response = await auth_client.get(
+            "/api/v1/nutrition/weekly",
+            params={"start_date": "2026-08-01", "end_date": "2026-08-07"},
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", _before_cursor_execute)
+
+    assert response.status_code == 200
+    assert len(response.json()) == 7
+    # Exactly one grouped aggregate over the whole range — not one per day.
+    assert len(grouped_selects) == 1, grouped_selects
+
+
 async def test_unauthorized_401(client):
     response = await client.get("/api/v1/nutrition/daily/2026-04-01")
     assert response.status_code == 401

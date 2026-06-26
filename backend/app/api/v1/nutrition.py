@@ -24,7 +24,10 @@ from app.services.food_recognition import (
     VisionUnavailableError,
     recognize_food,
 )
-from app.services.nutrition_calc import calculate_daily_nutrition
+from app.services.nutrition_calc import (
+    calculate_daily_nutrition,
+    calculate_weekly_nutrition,
+)
 
 router = APIRouter()
 
@@ -104,7 +107,11 @@ async def get_weekly_nutrition(
     end_date: date | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> list[DailyNutritionResponse]:
-    """Get nutrition data for a date range (defaults to last 7 days)."""
+    """Get nutrition data for a date range (defaults to last 7 days).
+
+    B12: served by a single grouped aggregate query (see
+    ``nutrition_calc.calculate_weekly_nutrition``) instead of one query per day.
+    """
     if not end_date:
         end_date = date.today()
     if not start_date:
@@ -113,11 +120,4 @@ async def get_weekly_nutrition(
     if (end_date - start_date).days > 90:
         raise HTTPException(status_code=400, detail="Date range cannot exceed 90 days")
 
-    results = []
-    current = start_date
-    while current <= end_date:
-        daily = await calculate_daily_nutrition(db, user_id, current)
-        results.append(daily)
-        current += timedelta(days=1)
-
-    return results
+    return await calculate_weekly_nutrition(db, user_id, start_date, end_date)
