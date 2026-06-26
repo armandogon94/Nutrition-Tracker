@@ -11,10 +11,13 @@ Covers the iOS ``MealService`` contract:
   cross-user protected
 """
 
+import asyncio
 import uuid
 
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import func, select
 
+from app.main import app
 from app.models.meal import Meal, MealItem
 
 
@@ -164,3 +167,94 @@ async def test_cannot_delete_another_users_item(auth_client, auth_client_b):
     # The item is still there for user A.
     again = await auth_client.delete(f"/api/v1/meals/items/{item_id}")
     assert again.status_code == 204
+
+
+# ---- Concurrency / atomicity (Codex review-4 #4) -------------------------
+#
+# Idempotency must hold under genuinely concurrent traffic, not just sequential
+# replays. Each request runs through its own get_db() session/transaction, so
+# asyncio.gather races them on the DB unique constraints. Without the constraints
+# (select-then-insert), these duplicate.
+
+
+def _concurrent_clients(auth_token: str, n: int) -> list[AsyncClient]:
+    """n independent authed clients so requests truly run in parallel (each gets
+    its own get_db transaction) rather than sharing one connection."""
+    return [
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        for _ in range(n)
+    ]
+
+
+async def test_concurrent_same_client_item_id_inserts_one_row(
+    auth_token, db_session
+):
+    """Concurrent retries with the SAME client_item_id -> exactly one MealItem.
+
+    Simulates the offline-retry queue firing the same mutation several times at
+    once (e.g. on reconnect). The (meal_id, client_item_id) partial unique index
+    must collapse them to a single row; every response echoes that same item.
+    """
+    body = _log_body()  # one fixed client_item_id shared by all racers
+    clients = _concurrent_clients(auth_token, 5)
+    try:
+        responses = await asyncio.gather(
+            *(c.post("/api/v1/meals/log", json=body) for c in clients)
+        )
+    finally:
+        await asyncio.gather(*(c.aclose() for c in clients))
+
+    statuses = [r.status_code for r in responses]
+    assert all(s == 201 for s in statuses), statuses
+
+    # All responses converge on the same single item id.
+    item_ids = {r.json()["items"][0]["id"] for r in responses}
+    assert len(item_ids) == 1
+
+    # Exactly one MealItem and one parent Meal persisted.
+    item_count = await db_session.scalar(select(func.count()).select_from(MealItem))
+    assert item_count == 1
+    meal_count = await db_session.scalar(select(func.count()).select_from(Meal))
+    assert meal_count == 1
+
+
+async def test_concurrent_first_logs_same_slot_share_one_meal(
+    auth_token, db_session
+):
+    """Concurrent FIRST logs (distinct items, same type/day) -> one parent meal.
+
+    Without UNIQUE (user_id, meal_type, meal_date), two simultaneous first logs
+    each create their own parent meal. The constraint forces them to converge on
+    a single meal that owns both items.
+    """
+    bodies = [
+        _log_body(
+            product_name=f"Item {i}",
+            client_item_id=str(uuid.uuid4()),  # distinct items
+        )
+        for i in range(5)
+    ]
+    clients = _concurrent_clients(auth_token, len(bodies))
+    try:
+        responses = await asyncio.gather(
+            *(c.post("/api/v1/meals/log", json=b) for c, b in zip(clients, bodies))
+        )
+    finally:
+        await asyncio.gather(*(c.aclose() for c in clients))
+
+    statuses = [r.status_code for r in responses]
+    assert all(s == 201 for s in statuses), statuses
+
+    # Every response references the SAME parent meal.
+    meal_ids = {r.json()["id"] for r in responses}
+    assert len(meal_ids) == 1
+
+    # Exactly one Meal, and all five distinct items landed on it.
+    meal_count = await db_session.scalar(select(func.count()).select_from(Meal))
+    assert meal_count == 1
+    item_count = await db_session.scalar(select(func.count()).select_from(MealItem))
+    assert item_count == 5
