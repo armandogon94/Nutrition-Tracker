@@ -27,12 +27,18 @@ router = APIRouter()
 async def create_meal(
     data: MealCreate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ) -> Meal:
-    """Create a new meal."""
-    meal = Meal(user_id=user_id, **data.model_dump())
-    db.add(meal)
-    await db.flush()
-    await db.refresh(meal)
-    return meal
+    """Create a meal, or return the existing one for the same natural key.
+
+    ``meals`` has a UNIQUE (user_id, meal_type, meal_date) constraint
+    (``uq_meals_user_type_date``), so a raw insert of a duplicate natural key
+    raised an unhandled ``IntegrityError`` (surfacing as a 500). We route through
+    the same conflict-safe find-or-create used by ``POST /meals/log``: a
+    duplicate request idempotently converges on the single existing meal rather
+    than erroring, and concurrent first-creates never duplicate.
+    """
+    return await _find_or_create_meal(
+        db, user_id=user_id, meal_type=data.meal_type, meal_date=data.meal_date
+    )
 
 
 async def _select_meal(

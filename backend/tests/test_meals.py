@@ -1,8 +1,12 @@
+import asyncio
 import uuid
 from datetime import date
 
-import pytest
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import func, select
 
+from app.main import app
+from app.models.meal import Meal
 from app.models.product import Product
 
 
@@ -166,3 +170,75 @@ async def test_unauthorized_access(client):
         json={"meal_type": "breakfast", "meal_date": "2026-04-01"},
     )
     assert response.status_code == 401
+
+
+# ---- Legacy POST /meals duplicate natural-key handling (Codex review-5 P2) ----
+#
+# The uq_meals_user_type_date UNIQUE constraint means a second POST for the same
+# (user_id, meal_type, meal_date) must NOT raise an unhandled IntegrityError
+# (which surfaced as a 500). The route is now find-or-create: a duplicate POST
+# converges on the single existing meal.
+
+
+async def test_create_meal_duplicate_natural_key_no_500(auth_client, db_session):
+    """A second POST for the same (type, date) returns the existing meal, not 500."""
+    first = await auth_client.post(
+        "/api/v1/meals",
+        json={"meal_type": "breakfast", "meal_date": "2026-05-01"},
+    )
+    assert first.status_code == 201, first.text
+    first_id = first.json()["id"]
+
+    # Duplicate natural key — previously raised IntegrityError -> 500.
+    second = await auth_client.post(
+        "/api/v1/meals",
+        json={"meal_type": "breakfast", "meal_date": "2026-05-01"},
+    )
+    assert second.status_code == 201, second.text
+    assert second.json()["id"] == first_id
+
+    # Exactly one Meal row persisted for that natural key.
+    count = await db_session.scalar(
+        select(func.count())
+        .select_from(Meal)
+        .where(Meal.meal_type == "breakfast", Meal.meal_date == date(2026, 5, 1))
+    )
+    assert count == 1
+
+
+async def test_concurrent_create_meal_same_slot_no_500(auth_token, db_session):
+    """Concurrent legacy POSTs for the same slot all succeed -> one meal, no 500.
+
+    Each client gets its own get_db() transaction, so asyncio.gather races them
+    on uq_meals_user_type_date. The ON CONFLICT DO NOTHING + re-select path must
+    converge them all on a single parent meal with no IntegrityError 500.
+    """
+    clients = [
+        AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        for _ in range(5)
+    ]
+    payload = {"meal_type": "dinner", "meal_date": "2026-05-02"}
+    try:
+        responses = await asyncio.gather(
+            *(c.post("/api/v1/meals", json=payload) for c in clients)
+        )
+    finally:
+        await asyncio.gather(*(c.aclose() for c in clients))
+
+    statuses = [r.status_code for r in responses]
+    assert all(s == 201 for s in statuses), statuses
+
+    # All responses converge on the same single meal id.
+    meal_ids = {r.json()["id"] for r in responses}
+    assert len(meal_ids) == 1
+
+    count = await db_session.scalar(
+        select(func.count())
+        .select_from(Meal)
+        .where(Meal.meal_type == "dinner", Meal.meal_date == date(2026, 5, 2))
+    )
+    assert count == 1
