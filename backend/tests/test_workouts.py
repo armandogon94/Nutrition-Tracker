@@ -84,6 +84,16 @@ async def test_create_program(auth_client):
     assert data["is_preset"] is False
 
 
+@pytest.mark.parametrize("bad_name", ["", "   ", "\t"])
+async def test_create_program_rejects_blank_name(auth_client, bad_name):
+    """WorkoutProgramCreate.name must reject blank / whitespace-only names."""
+    response = await auth_client.post(
+        "/api/v1/workouts/programs",
+        json={"name": bad_name, "days_per_week": 3},
+    )
+    assert response.status_code == 422
+
+
 async def test_start_session(auth_client):
     now = datetime.now(timezone.utc).isoformat()
     response = await auth_client.post(
@@ -266,6 +276,39 @@ async def test_complete_session(auth_client):
     assert data["completed_at"] is not None
     assert data["notes"] == "Great workout!"
     assert data["duration_minutes"] is not None
+
+
+async def test_complete_session_rejects_oversized_notes(auth_client):
+    """SessionComplete.notes is capped (max_length=5000) so a client cannot
+    flood the DB / logs with megabytes of text."""
+    now = datetime.now(timezone.utc).isoformat()
+    session_resp = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"started_at": now},
+    )
+    session_id = session_resp.json()["id"]
+
+    response = await auth_client.patch(
+        f"/api/v1/workouts/sessions/{session_id}/complete",
+        json={"notes": "x" * 5001},
+    )
+    assert response.status_code == 422
+
+
+async def test_start_session_converts_offset_to_utc(auth_client):
+    """B9: a tz-aware started_at must be converted to UTC before storage, not
+    have its tzinfo stripped in place. 2026-06-26T23:30:00-05:00 is the SAME
+    instant as 2026-06-27T04:30:00Z, so the serialized response must come back
+    as 04:30 UTC (the wall clock 23:30 stored as-is would be a 5h error)."""
+    response = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"started_at": "2026-06-26T23:30:00-05:00"},
+    )
+    assert response.status_code == 201
+    started_at = response.json()["started_at"]
+    # UTCDateTime serializes with an explicit offset; the instant must be 04:30Z.
+    parsed = datetime.fromisoformat(started_at)
+    assert parsed == datetime(2026, 6, 27, 4, 30, tzinfo=timezone.utc)
 
 
 async def test_get_workout_history(auth_client, db_session):

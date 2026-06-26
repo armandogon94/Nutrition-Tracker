@@ -42,6 +42,21 @@ def ensure_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
+def to_naive_utc(value: datetime) -> datetime:
+    """Normalize an inbound datetime to naive UTC for storage.
+
+    This is the *write*-boundary counterpart to ``ensure_utc``: a client may
+    send a tz-aware instant in any offset (e.g. ``2026-06-26T23:30:00-05:00``).
+    We must convert it to UTC *before* dropping ``tzinfo``, otherwise the wall
+    clock (``23:30``) is stored as if it were UTC and the instant is wrong by
+    the offset. Naive inputs are assumed to already be UTC (our convention) and
+    are returned unchanged.
+    """
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _serialize_utc(value: datetime) -> str:
     """Serialize a datetime as timezone-aware UTC ISO8601 (always with offset).
 
