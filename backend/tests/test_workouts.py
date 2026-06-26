@@ -373,7 +373,7 @@ async def test_history_uses_single_query(auth_client, db_session, setup_db):
     await db_session.commit()
 
     # Seed 5 sessions × 3 sets via the API to exercise the same code paths
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     session_ids: list[str] = []
     for s_idx in range(5):
         resp = await auth_client.post(
