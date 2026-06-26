@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -34,14 +35,9 @@ async def create_meal(
     return meal
 
 
-async def _find_or_create_meal(
+async def _select_meal(
     db: AsyncSession, *, user_id: UUID, meal_type: str, meal_date: date
-) -> Meal:
-    """Return the user's meal for (meal_type, meal_date), creating it if absent.
-
-    Mirrors the iOS client's "one meal per type per day" rule so logging a
-    second item into today's lunch attaches to the same parent meal.
-    """
+) -> Meal | None:
     result = await db.execute(
         select(Meal).where(
             Meal.user_id == user_id,
@@ -49,11 +45,35 @@ async def _find_or_create_meal(
             Meal.meal_date == meal_date,
         )
     )
-    meal = result.scalars().first()
-    if meal is None:
-        meal = Meal(user_id=user_id, meal_type=meal_type, meal_date=meal_date)
-        db.add(meal)
-        await db.flush()
+    return result.scalars().first()
+
+
+async def _find_or_create_meal(
+    db: AsyncSession, *, user_id: UUID, meal_type: str, meal_date: date
+) -> Meal:
+    """Return the user's meal for (meal_type, meal_date), creating it if absent.
+
+    Mirrors the iOS client's "one meal per type per day" rule so logging a
+    second item into today's lunch attaches to the same parent meal.
+
+    Atomic under concurrency: ``INSERT ... ON CONFLICT DO NOTHING`` against the
+    ``uq_meals_user_type_date`` constraint never raises, so two simultaneous
+    first logs cannot create duplicate parent meals — whoever loses the race is a
+    no-op insert. We then re-select by the natural key to return the single
+    canonical ORM row (whether we created it or the concurrent request did).
+    """
+    await db.execute(
+        pg_insert(Meal)
+        .values(user_id=user_id, meal_type=meal_type, meal_date=meal_date)
+        .on_conflict_do_nothing(
+            index_elements=["user_id", "meal_type", "meal_date"]
+        )
+    )
+    meal = await _select_meal(
+        db, user_id=user_id, meal_type=meal_type, meal_date=meal_date
+    )
+    if meal is None:  # pragma: no cover - row must exist after insert-or-conflict
+        raise HTTPException(status_code=500, detail="Failed to resolve meal")
     return meal
 
 
@@ -123,6 +143,78 @@ def _item_to_log_response(item: MealItem, product: Product) -> MealItemLogRespon
     )
 
 
+async def _select_item_by_client_id(
+    db: AsyncSession, *, meal_id: UUID, client_item_id: str
+) -> MealItem | None:
+    result = await db.execute(
+        select(MealItem).where(
+            MealItem.meal_id == meal_id,
+            MealItem.client_item_id == client_item_id,
+        )
+    )
+    return result.scalars().first()
+
+
+async def _get_or_create_item(
+    db: AsyncSession, *, meal_id: UUID, data: MealLogRequest
+) -> tuple[MealItem, Product]:
+    """Return the (item, product) for this log, idempotent on client_item_id.
+
+    Atomic under concurrent offline-retry traffic via ``INSERT ... ON CONFLICT
+    DO NOTHING`` against the ``uq_meal_items_meal_client_item`` partial unique
+    index — the insert never raises, so the session is never poisoned. If we lose
+    the race (RETURNING is empty), we drop the snapshot product we would have
+    created and return the item the winner committed instead.
+
+    With no client_item_id there is no idempotency key (the partial index
+    excludes NULLs), so the insert always lands as a fresh row.
+    """
+    # Fast path: an exact replay (same client_item_id already stored).
+    if data.client_item_id:
+        existing = await _select_item_by_client_id(
+            db, meal_id=meal_id, client_item_id=data.client_item_id
+        )
+        if existing is not None:
+            product = await db.get(Product, existing.product_id)
+            return existing, product
+
+    product = await _resolve_product_for_log(db, data)
+
+    stmt = (
+        pg_insert(MealItem)
+        .values(
+            meal_id=meal_id,
+            product_id=product.id,
+            quantity_servings=data.servings,
+            client_item_id=data.client_item_id,
+        )
+        .returning(MealItem.id)
+    )
+    if data.client_item_id:
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=["meal_id", "client_item_id"],
+            index_where=MealItem.client_item_id.isnot(None),
+        )
+
+    inserted_id = (await db.execute(stmt)).scalar_one_or_none()
+
+    if inserted_id is not None:
+        item = await db.get(MealItem, inserted_id)
+        return item, product
+
+    # Lost the concurrent race on this client_item_id. Our just-created snapshot
+    # product is now an orphan — discard it — and return the winner's row.
+    existing = await _select_item_by_client_id(
+        db, meal_id=meal_id, client_item_id=data.client_item_id
+    )
+    if existing is None:  # pragma: no cover - conflict implies a row exists
+        raise HTTPException(status_code=500, detail="Failed to resolve meal item")
+    if existing.product_id != product.id:
+        await db.delete(product)
+    winner_product = await db.get(Product, existing.product_id)
+    return existing, winner_product
+
+
 @router.post("/log", response_model=MealLogResponse, status_code=201)
 async def log_meal_item(
     data: MealLogRequest,
@@ -141,30 +233,7 @@ async def log_meal_item(
         db, user_id=user_id, meal_type=data.meal_type, meal_date=data.meal_date
     )
 
-    # Idempotency: if this client_item_id already exists on this meal, return it.
-    existing: MealItem | None = None
-    if data.client_item_id:
-        result = await db.execute(
-            select(MealItem).where(
-                MealItem.meal_id == meal.id,
-                MealItem.client_item_id == data.client_item_id,
-            )
-        )
-        existing = result.scalars().first()
-
-    if existing is not None:
-        product = await db.get(Product, existing.product_id)
-        item = existing
-    else:
-        product = await _resolve_product_for_log(db, data)
-        item = MealItem(
-            meal_id=meal.id,
-            product_id=product.id,
-            quantity_servings=data.servings,
-            client_item_id=data.client_item_id,
-        )
-        db.add(item)
-        await db.flush()
+    item, product = await _get_or_create_item(db, meal_id=meal.id, data=data)
 
     # Reload the meal's items so the response reflects everything logged so far.
     await db.refresh(meal, attribute_names=["items"])
