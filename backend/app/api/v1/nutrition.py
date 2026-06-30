@@ -22,6 +22,7 @@ from app.services.food_recognition import (
     ALLOWED_IMAGE_TYPES,
     VisionRecognitionError,
     VisionUnavailableError,
+    looks_like_supported_image,
     recognize_food,
 )
 from app.services.nutrition_calc import (
@@ -42,10 +43,11 @@ async def recognize_food_photo(
     """Recognize a food from an uploaded photo via Claude Vision.
 
     Authenticated, multipart ``image`` upload. The image is validated for
-    content-type and size BEFORE any provider call, then handed to
-    ``food_recognition.recognize_food`` which sends only the image bytes plus a
-    fixed prompt to the vision provider (no user id/email leaves the server —
-    the PII gate). Rate-limited at 10/minute because each call is metered.
+    content-type, size, AND actual magic bytes BEFORE any provider call, then
+    handed to ``food_recognition.recognize_food`` which sends only the image
+    bytes plus a fixed prompt to the vision provider (no user id/email leaves the
+    server — the PII gate). Rate-limited at 10/minute because each call is
+    metered.
 
     Returns the iOS ``VisionRecognitionResponse`` shape:
     ``{food, grams, confidence, calories?, protein_g?, carbs_g?, fat_g?}``.
@@ -73,6 +75,13 @@ async def recognize_food_photo(
                 f"Image exceeds the {settings.max_image_bytes // (1024 * 1024)} "
                 "MiB limit"
             ),
+        )
+    # A5: don't trust the Content-Type header — verify the actual magic bytes so
+    # an arbitrary/polyglot blob can't be forwarded to the paid vision provider.
+    if not looks_like_supported_image(image_bytes):
+        raise HTTPException(
+            status_code=400,
+            detail="Uploaded file is not a valid image",
         )
 
     client = await get_client()
