@@ -131,3 +131,20 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: "YES"
         TARGETED_DEVICE_FAMILY: "1"
         SKIP_INSTALL: "YES"
+
+# Explicit scheme so the test action runs SERIALLY and in a fixed order. The
+# whole test suite shares one `MockURLProtocol.handler` static, so Swift
+# Testing's default in-process parallelism let concurrent suites clobber each
+# other's stubbed responses (intermittent NutritionService / History failures).
+# xcodebuild's `-parallel-testing-enabled NO` does NOT gate Swift Testing's
+# parallelism — disabling it on the testable target here does.
+schemes:
+  FitTracker:
+    build:
+      targets:
+        FitTracker: all
+    test:
+      targets:
+        - name: FitTrackerTests
+          parallelizable: false
+          randomExecutionOrder: false

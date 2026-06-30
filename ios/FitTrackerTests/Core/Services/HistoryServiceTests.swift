@@ -124,9 +124,14 @@ struct HistoryServiceTests {
         let (sut, container) = try makeSUT()
         let ctx = ModelContext(container)
 
-        // Anchor on the CURRENT ISO week so the sessions fall inside the
-        // 12-week window. Monday + Wednesday land in the same bucket.
-        let monday = HistoryService.weekStart(for: Date())
+        // Anchor on LAST ISO week so both days are in the past regardless of
+        // which weekday the test runs on. volumeByWeek's window ends at `now`,
+        // so a session dated later in the *current* week (e.g. Wednesday when
+        // today is Tuesday) would be excluded — which made this test flaky.
+        // Last week is still well inside the 12-week window; Monday + Wednesday
+        // still share one bucket.
+        let thisWeek = HistoryService.weekStart(for: Date())
+        let monday = HistoryService.calendar.date(byAdding: .weekOfYear, value: -1, to: thisWeek)!
         let wednesday = HistoryService.calendar.date(byAdding: .day, value: 2, to: monday)!
 
         // Session A: 80*8 + 80*7 = 1200

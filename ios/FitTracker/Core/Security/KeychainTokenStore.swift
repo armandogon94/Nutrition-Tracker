@@ -91,8 +91,10 @@ final class KeychainTokenStore: TokenProvider, @unchecked Sendable {
     /// Accessibility class for every stored token. `ThisDeviceOnly` blocks
     /// inclusion in iCloud Keychain and encrypted backups (review A3); the
     /// `AfterFirstUnlock` part still permits background refresh post-unlock.
-    /// Defined once so the add and update paths can never drift.
-    private static let accessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    /// Defined once so the add and update paths can never drift. Computed (not a
+    /// stored `static let`) so it stays Swift 6 concurrency-safe — `CFString` is
+    /// not `Sendable`, but returning the immutable system constant each access is.
+    private static var accessibility: CFString { kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly }
 
     private func baseQuery(account: String) -> [String: Any] {
         [

@@ -130,7 +130,9 @@ actor OfflineQueue {
     /// being silently dropped (review C4 / Flash B1). Derived from `storageKey`
     /// so each queue instance (incl. per-test instances) quarantines into its
     /// own slot. Exposed so tests can assert the blob was saved, not lost.
-    var corruptedKey: String { storageKey + ".corrupted" }
+    /// `nonisolated` because it only derives from the immutable `storageKey`
+    /// (Sendable) — so callers (and tests) can read it synchronously.
+    nonisolated var corruptedKey: String { storageKey + ".corrupted" }
 
     private func read() -> [PendingMutation] {
         guard let data = defaults.data(forKey: storageKey) else { return [] }

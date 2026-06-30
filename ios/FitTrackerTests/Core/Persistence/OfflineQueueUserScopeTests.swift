@@ -131,19 +131,23 @@ struct OfflineQueueOwnerScopeTests {
 @Suite("OfflineQueue corruption quarantine", .serialized)
 struct OfflineQueueQuarantineTests {
 
-    private func makeDefaults() -> (UserDefaults, String) {
-        let suiteName = "test.fittracker.\(UUID().uuidString)"
-        return (UserDefaults(suiteName: suiteName)!, "queue")
+    private func makeDefaults() -> (defaults: UserDefaults, suite: String, key: String) {
+        let suite = "test.fittracker.\(UUID().uuidString)"
+        return (UserDefaults(suiteName: suite)!, suite, "queue")
     }
 
     @Test("corrupt blob is quarantined, not silently dropped")
     func corruptBlob_isQuarantined() async {
-        let (defaults, key) = makeDefaults()
+        let (defaults, suite, key) = makeDefaults()
         // Seed an undecodable blob under the live queue key.
         let garbage = Data("{ not valid pending mutations ]".utf8)
         defaults.set(garbage, forKey: key)
 
-        let q = OfflineQueue(storageKey: key, defaults: defaults)
+        // Give the actor its OWN handle to the same suite store so the
+        // non-Sendable `defaults` we seed/assert with is never "sent" into the
+        // actor (Swift 6 data-race safety) — matches the pattern used elsewhere
+        // in this file.
+        let q = OfflineQueue(storageKey: key, defaults: UserDefaults(suiteName: suite)!)
 
         // Reading yields empty (the queue can't decode it)...
         let items = await q.peekAll()
@@ -158,11 +162,15 @@ struct OfflineQueueQuarantineTests {
 
     @Test("a later enqueue after corruption does not erase the quarantined blob")
     func enqueueAfterCorruption_keepsQuarantine() async {
-        let (defaults, key) = makeDefaults()
+        let (defaults, suite, key) = makeDefaults()
         let garbage = Data("totally not json".utf8)
         defaults.set(garbage, forKey: key)
 
-        let q = OfflineQueue(storageKey: key, defaults: defaults)
+        // Give the actor its OWN handle to the same suite store so the
+        // non-Sendable `defaults` we seed/assert with is never "sent" into the
+        // actor (Swift 6 data-race safety) — matches the pattern used elsewhere
+        // in this file.
+        let q = OfflineQueue(storageKey: key, defaults: UserDefaults(suiteName: suite)!)
         // First read triggers the quarantine.
         _ = await q.peekAll()
 
@@ -178,11 +186,15 @@ struct OfflineQueueQuarantineTests {
 
     @Test("first corruption wins: a second corrupt read doesn't clobber the quarantine")
     func secondCorruption_keepsFirstBlob() async {
-        let (defaults, key) = makeDefaults()
+        let (defaults, suite, key) = makeDefaults()
         let first = Data("first-corrupt".utf8)
         defaults.set(first, forKey: key)
 
-        let q = OfflineQueue(storageKey: key, defaults: defaults)
+        // Give the actor its OWN handle to the same suite store so the
+        // non-Sendable `defaults` we seed/assert with is never "sent" into the
+        // actor (Swift 6 data-race safety) — matches the pattern used elsewhere
+        // in this file.
+        let q = OfflineQueue(storageKey: key, defaults: UserDefaults(suiteName: suite)!)
         _ = await q.peekAll()   // quarantines `first`, clears primary
 
         // Simulate a second corruption landing on the primary key later.
