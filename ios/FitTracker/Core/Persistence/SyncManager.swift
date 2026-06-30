@@ -235,7 +235,20 @@ final class SyncManager {
                 didChange = true
             }
         }
-        if didChange { try? context.save() }
+        if didChange {
+            // Don't silently swallow the save (review Flash B6): if reconciling
+            // the confirmed writes fails, the local store stays marked
+            // pendingSync and would needlessly replay. We can't recover here,
+            // but we must not lose the signal — log it. NARROW change: the
+            // replay/queue logic above is untouched.
+            do {
+                try context.save()
+            } catch {
+                #if DEBUG
+                print("[SyncManager] reconcileLocal save failed; local pendingSync flags left set: \(error)")
+                #endif
+            }
+        }
     }
 
     /// Inspection helpers used by views (e.g. an "Offline — N pending"

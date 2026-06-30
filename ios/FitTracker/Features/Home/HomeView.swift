@@ -15,6 +15,9 @@ struct HomeView: View {
     @State private var nutrition: DailyNutrition?
     @State private var goal: NutritionGoal?
     @State private var refinedTDEE: RefinedTDEE?
+    /// Set when the profile fetch behind the TDEE estimate failed (review
+    /// Flash B3): surfaces an inline error + retry instead of a silent blank.
+    @State private var tdeeError = false
     @State private var showScan = false
     @State private var isRefreshing = false
 
@@ -22,11 +25,12 @@ struct HomeView: View {
     private var entities: [MealEntity]
 
     /// Today's meals — pulled from SwiftData when there are any rows
-    /// for this calendar day, otherwise the Slice 0.5 mock so the home
-    /// screen never looks empty during onboarding.
+    /// for this LOCAL calendar day (review B10), otherwise the Slice 0.5 mock
+    /// so the home screen never looks empty during onboarding. Using the local
+    /// day means a late-evening log still shows under "today", not tomorrow.
     private var meals: [Meal] {
-        let today = Calendar(identifier: .iso8601).startOfDay(for: .now)
-        let tomorrow = Calendar(identifier: .iso8601).date(byAdding: .day, value: 1, to: today) ?? Date()
+        let today = LocalDay.startOfDay(for: .now)
+        let tomorrow = LocalDay.nextDay(after: .now)
         let local = entities
             .filter { $0.mealDate >= today && $0.mealDate < tomorrow }
             .map(Meal.init(from:))
@@ -84,16 +88,22 @@ struct HomeView: View {
 
     /// Slice 2.6: refine the displayed daily-burn estimate from a FRESH
     /// HealthKit bodyweight sample when one exists, else fall back to the
-    /// profile weight. Quietly no-ops when there's no profile / no Health
-    /// access — the hero card just omits the burn chip.
+    /// profile weight. A genuine profile-fetch failure (offline / server error)
+    /// is surfaced as `tdeeError` with a retry affordance (review Flash B3)
+    /// rather than silently leaving the chip blank; "no profile yet" returns
+    /// defaults from ProfileService and is not treated as an error. A
+    /// denied/absent Health sample stays the quiet fallback path.
     @MainActor
     private func refineTDEE() async {
-        guard let profile = try? await services.profile.profile() else {
+        do {
+            let profile = try await services.profile.profile()
+            tdeeError = false
+            let sample = try? await HealthKitService.shared.latestBodyMassReading()
+            refinedTDEE = HomeViewModel.refineTDEE(profile: profile, healthKit: sample)
+        } catch {
             refinedTDEE = nil
-            return
+            tdeeError = true
         }
-        let sample = try? await HealthKitService.shared.latestBodyMassReading()
-        refinedTDEE = HomeViewModel.refineTDEE(profile: profile, healthKit: sample)
     }
 
     private var logMealFAB: some View {
@@ -157,11 +167,38 @@ struct HomeView: View {
 
             if let refinedTDEE {
                 tdeeChip(refinedTDEE)
+            } else if tdeeError {
+                tdeeErrorChip
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .themedCard()
+    }
+
+    /// Inline error + retry shown when the profile fetch behind the TDEE hint
+    /// failed (review Flash B3), so the user isn't left with an unexplained gap.
+    private var tdeeErrorChip: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(theme.negative)
+            Text("home.tdee.error")
+                .font(theme.font.caption)
+                .foregroundStyle(theme.textSecondary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+            Spacer(minLength: 6)
+            Button {
+                Task { await refineTDEE() }
+            } label: {
+                Text("common.tryAgain")
+                    .font(theme.font.caption)
+                    .foregroundStyle(theme.accent)
+            }
+        }
+        .padding(.top, 4)
+        .accessibilityElement(children: .combine)
     }
 
     /// Slice 2.6: estimated daily energy burn (TDEE). When it was refined

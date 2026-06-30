@@ -80,6 +80,13 @@ final class HomeViewModel {
 
     private(set) var refined: RefinedTDEE?
 
+    /// Non-nil when the last `refresh()` failed to load the profile (review
+    /// Flash B3). Drives a user-facing error + retry affordance instead of
+    /// silently leaving the TDEE hint blank with no explanation. A "no profile
+    /// yet" (404) is NOT an error — `ProfileService` returns defaults for that —
+    /// so this only trips on genuine failures (offline / server error).
+    private(set) var loadError: String?
+
     private let profileService: any ProfileServiceProtocol
     private let healthKit: HealthKitService
 
@@ -89,15 +96,28 @@ final class HomeViewModel {
         self.healthKit = healthKit
     }
 
-    /// Fetch the profile + latest HealthKit bodyweight and publish the
-    /// refined TDEE. Quietly no-ops on any failure (HealthKit denied, no
-    /// profile yet, offline) — the dashboard keeps rendering its other
-    /// cards and simply shows no refined-TDEE hint.
+    /// Fetch the profile + latest HealthKit bodyweight and publish the refined
+    /// TDEE. A profile-fetch failure is surfaced via `loadError` (with a retry
+    /// path) rather than swallowed. The HealthKit read stays best-effort: a
+    /// denied/absent Health sample is the expected quiet path and simply falls
+    /// back to the profile weight.
     func refresh(now: Date = Date()) async {
-        guard let profile = try? await profileService.profile() else { return }
-        // Use the date-carrying read so the freshness check is real: a stale
-        // Health sample must NOT silently override a more recent profile weight.
-        let sample = try? await healthKit.latestBodyMassReading()
-        refined = Self.refineTDEE(profile: profile, healthKit: sample, now: now)
+        do {
+            let profile = try await profileService.profile()
+            loadError = nil
+            // Use the date-carrying read so the freshness check is real: a stale
+            // Health sample must NOT silently override a more recent profile weight.
+            let sample = try? await healthKit.latestBodyMassReading()
+            refined = Self.refineTDEE(profile: profile, healthKit: sample, now: now)
+        } catch {
+            // Surface the failure so the dashboard can offer a retry instead of
+            // leaving the TDEE hint blank with no explanation.
+            loadError = String(localized: "home.tdee.error")
+        }
+    }
+
+    /// Retry affordance for the error surfaced by `refresh()`.
+    func retry() async {
+        await refresh()
     }
 }

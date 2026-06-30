@@ -111,6 +111,75 @@ struct HealthKitIdempotencyTests {
         let count = await workoutSaved.count
         #expect(count == 0, "a duplicate workout (same session id) must not be written again")
     }
+
+    // MARK: - Concurrent check-then-save race (review C2)
+
+    @Test("two concurrent writeMealEntry for the same id save only once")
+    func writeMealEntry_concurrentSameId_savesOnce() async throws {
+        let store = SimulatedHealthStore(saved: SavedSamplesBox())
+        let item = sampleItem()
+        // The existence query suspends so both concurrent calls would overlap
+        // inside the query window absent the per-UUID critical section — exactly
+        // the reentrancy the C2 fix closes.
+        let service = HealthKitService(
+            store: HKHealthStore(),
+            authorizationRequester: { _, _ in },
+            existingExternalUUIDFetcher: { uuid, _ in
+                try? await Task.sleep(nanoseconds: 20_000_000) // 20ms
+                return await store.contains(uuid)
+            },
+            sampleSaver: { samples in await store.save(samples) }
+        )
+
+        async let a: Void = service.writeMealEntry(item)
+        async let b: Void = service.writeMealEntry(item)
+        _ = try await (a, b)
+
+        let saveCalls = await store.saveCallCount
+        #expect(saveCalls == 1, "concurrent identical writes must save exactly once, not duplicate")
+    }
+
+    @Test("two concurrent writeWorkout for the same session save only once")
+    func writeWorkout_concurrentSameId_savesOnce() async throws {
+        let workoutSaved = WorkoutSavedBox()
+        let session = WorkoutSession(
+            id: UUID(), startedAt: Date().addingTimeInterval(-1800),
+            completedAt: Date(), programName: "PPL", dayName: "Push", sets: []
+        )
+        let service = HealthKitService(
+            store: HKHealthStore(),
+            authorizationRequester: { _, _ in },
+            existingExternalUUIDFetcher: { _, _ in
+                try? await Task.sleep(nanoseconds: 20_000_000) // 20ms
+                return false   // neither sees the other's (not-yet) write
+            },
+            workoutSaver: { session in await workoutSaved.record(session.id) }
+        )
+
+        async let a: Void = service.writeWorkout(session)
+        async let b: Void = service.writeWorkout(session)
+        _ = try await (a, b)
+
+        let count = await workoutSaved.count
+        #expect(count == 1, "concurrent identical workout finishes must write exactly once")
+    }
+
+    @Test("a later writeMealEntry after the first completes still works (slot released)")
+    func writeMealEntry_sequentialAfterCompletion_notBlocked() async throws {
+        let store = SimulatedHealthStore(saved: SavedSamplesBox())
+        let first = sampleItem()
+        let second = sampleItem()   // distinct id
+        let service = HealthKitService(
+            store: HKHealthStore(),
+            authorizationRequester: { _, _ in },
+            existingExternalUUIDFetcher: { uuid, _ in await store.contains(uuid) },
+            sampleSaver: { samples in await store.save(samples) }
+        )
+        try await service.writeMealEntry(first)
+        try await service.writeMealEntry(second)
+        let saveCalls = await store.saveCallCount
+        #expect(saveCalls == 2, "the critical-section slot must be released after each write")
+    }
 }
 
 /// Thread-safe accumulator for samples a fake saver received.

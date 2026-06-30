@@ -82,19 +82,14 @@ final class MealService: MealLoggingServiceProtocol {
     }
 
     // MARK: - Date encoding
-
-    /// The backend's `meal_date` is a date-only field. APIClient's JSON
-    /// encoder emits full ISO8601 datetimes, which the Pydantic `date`
-    /// validator rejects with a 422 — so we pre-format the day ourselves.
-    /// (Same approach as `MealPlanService` for `week_start_date`.)
-    private static let dateOnly: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .iso8601)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
+    //
+    // The backend's `meal_date` is a date-only field. APIClient's JSON encoder
+    // emits full ISO8601 datetimes, which the Pydantic `date` validator rejects
+    // with a 422 — so we pre-format the day ourselves. We format in the user's
+    // LOCAL calendar (review B10 / Flash G4): a dinner logged at 20:30 in Mexico
+    // City must land on today's local date, not tomorrow's UTC date. This is
+    // derived once at enqueue time and carried in the durable payload, so the
+    // SyncManager replay sends the exact same local date string.
 
     // MARK: - Logging
 
@@ -128,9 +123,9 @@ final class MealService: MealLoggingServiceProtocol {
                                  userId: UUID) async throws -> MealLogOutcome {
 
         // Reuse an existing Meal for (userId, mealType, mealDate-day) or
-        // create one. We treat "same meal" as same calendar day per the
-        // dashboard aggregation rule in SPEC.md §4.
-        let dayStart = Calendar(identifier: .iso8601).startOfDay(for: mealDate)
+        // create one. "Same meal" = same LOCAL calendar day (review B10), so a
+        // late-evening log groups under today, not a UTC-rolled tomorrow.
+        let dayStart = LocalDay.startOfDay(for: mealDate)
         let mealTypeRaw = mealType.rawValue
         let descriptor = FetchDescriptor<MealEntity>(
             predicate: #Predicate { meal in
@@ -142,7 +137,7 @@ final class MealService: MealLoggingServiceProtocol {
         let candidates = try context.fetch(descriptor)
         let parent: MealEntity
         if let existing = candidates.first(where: {
-            Calendar(identifier: .iso8601).isDate($0.mealDate, inSameDayAs: dayStart)
+            LocalDay.calendar().isDate($0.mealDate, inSameDayAs: dayStart)
         }) {
             parent = existing
         } else {
@@ -187,7 +182,7 @@ final class MealService: MealLoggingServiceProtocol {
         // a silently lost write. Enqueuing first, then removing on confirmed
         // success, closes that window. The enqueue is idempotent by id, so the
         // pre-write + a later replay never produce two entries.
-        let dateOnly = Self.dateOnly.string(from: mealDate)
+        let dateOnly = LocalDay.dateString(for: mealDate)
         let payload = LogMealItemPayload(
             ownerId: userId,
             clientItemId: snapshot.id,
@@ -231,11 +226,11 @@ final class MealService: MealLoggingServiceProtocol {
     // MARK: - Reads
 
     /// Today's meals from the SwiftData cache. Used by HomeView and
-    /// MealsListView; never hits the network.
+    /// MealsListView; never hits the network. Day boundaries are LOCAL (review
+    /// B10) so "today" matches the user's calendar, not UTC.
     func recentMeals(for date: Date, userId: UUID) async throws -> [Meal] {
-        let cal = Calendar(identifier: .iso8601)
-        let dayStart = cal.startOfDay(for: date)
-        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? date
+        let dayStart = LocalDay.startOfDay(for: date)
+        let dayEnd = LocalDay.nextDay(after: date)
         let descriptor = FetchDescriptor<MealEntity>(
             predicate: #Predicate { meal in
                 meal.userId == userId &&
@@ -254,10 +249,9 @@ final class MealService: MealLoggingServiceProtocol {
     func mealsToday() async throws -> [Meal] {
         // Without a known userId here we simply fetch all of today's
         // meals. In practice MainTabView wires `recentMeals(for:userId:)`
-        // through the auth-aware view model.
-        let cal = Calendar(identifier: .iso8601)
-        let dayStart = cal.startOfDay(for: .now)
-        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart) ?? Date()
+        // through the auth-aware view model. LOCAL day boundaries (review B10).
+        let dayStart = LocalDay.startOfDay(for: .now)
+        let dayEnd = LocalDay.nextDay(after: .now)
         let descriptor = FetchDescriptor<MealEntity>(
             predicate: #Predicate { meal in
                 meal.mealDate >= dayStart && meal.mealDate < dayEnd

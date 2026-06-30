@@ -126,9 +126,43 @@ actor OfflineQueue {
 
     // MARK: - Storage
 
+    /// Key under which a corrupt/undecodable queue blob is preserved instead of
+    /// being silently dropped (review C4 / Flash B1). Derived from `storageKey`
+    /// so each queue instance (incl. per-test instances) quarantines into its
+    /// own slot. Exposed so tests can assert the blob was saved, not lost.
+    /// `nonisolated` because it only derives from the immutable `storageKey`
+    /// (Sendable) — so callers (and tests) can read it synchronously.
+    nonisolated var corruptedKey: String { storageKey + ".corrupted" }
+
     private func read() -> [PendingMutation] {
         guard let data = defaults.data(forKey: storageKey) else { return [] }
-        return (try? JSONDecoder.iso8601().decode([PendingMutation].self, from: data)) ?? []
+        do {
+            return try JSONDecoder.iso8601().decode([PendingMutation].self, from: data)
+        } catch {
+            // The persisted queue failed to decode (schema drift, partial
+            // UserDefaults write, corruption). Returning [] here used to let
+            // the NEXT write overwrite the key and permanently drop every
+            // pending mutation. Instead we copy the raw bytes to a quarantine
+            // key and clear the primary key, so the data is recoverable and we
+            // don't re-attempt the same failing decode on every read. The
+            // mutations are still lost from the live queue, but preserved for
+            // diagnostics / a future migration rather than gone.
+            quarantine(data, error: error)
+            return []
+        }
+    }
+
+    /// Preserve an undecodable blob under `corruptedKey` and clear the primary
+    /// slot. If a quarantine blob already exists we keep the FIRST one (the
+    /// earliest corruption) rather than clobbering it with a later read.
+    private func quarantine(_ data: Data, error: Error) {
+        if defaults.data(forKey: corruptedKey) == nil {
+            defaults.set(data, forKey: corruptedKey)
+        }
+        defaults.removeObject(forKey: storageKey)
+        #if DEBUG
+        print("[OfflineQueue] Quarantined corrupt queue (\(data.count) bytes) to \(corruptedKey): \(error)")
+        #endif
     }
 
     private func write(_ mutations: [PendingMutation]) {

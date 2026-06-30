@@ -253,19 +253,12 @@ final class HistoryService: HistoryServiceProtocol, @unchecked Sendable {
 
     // MARK: - 1RM (mirror of backend workout_service.estimate_1rm)
 
-    /// Average of Brzycki and Epley formulas. Identity at 1 rep; 0 for
-    /// non-positive inputs; reps capped at 36 to avoid Brzycki's div-by-zero
-    /// at 37. Rounded to 1 decimal to match the backend exactly.
+    /// Average of Brzycki and Epley formulas. Delegates to the shared
+    /// `Formulas.estimate1RM` (review Flash F2) so the on-device PR math lives
+    /// in exactly one place and stays in lock-step with the backend; the
+    /// signature is preserved for callers and tests.
     static func estimate1RM(weightKg: Double, reps: Int) -> Double {
-        if reps <= 0 || weightKg <= 0 { return 0 }
-        if reps == 1 { return weightKg }
-        let cappedReps = reps >= 37 ? 36 : reps
-        let r = Double(cappedReps)
-        let brzycki = weightKg * (36.0 / (37.0 - r))
-        let epley = weightKg * (1.0 + r / 30.0)
-        // Banker's rounding (half-to-even) to match Python round() in
-        // backend/app/services/workout_service.py exactly.
-        return ((brzycki + epley) / 2 * 10).rounded(.toNearestOrEven) / 10
+        Formulas.estimate1RM(weightKg: weightKg, reps: reps)
     }
 
     // MARK: - Week math

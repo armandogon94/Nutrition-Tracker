@@ -88,6 +88,24 @@
         }
       }
     },
+    "dashboard.macros.progress": {
+      "comment": "VoiceOver label for the macro rings. %1$lld = calorie %, %2$lld = carbs %, %3$lld = fat %.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macros: calories %1$lld%% of goal, carbs %2$lld%%, fat %3$lld%%"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Macros: calorías %1$lld%% de la meta, carbohidratos %2$lld%%, grasa %3$lld%%"
+          }
+        }
+      }
+    },
     "exercises.detail.difficulty": {
       "comment": "Detail row label.",
       "extractionState": "manual",
@@ -1359,6 +1377,24 @@
         }
       }
     },
+    "home.tdee.error": {
+      "comment": "Shown on the dashboard when the profile fetch behind the estimated daily burn fails. Paired with a 'Try again' button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load your daily burn estimate."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar tu gasto diario estimado."
+          }
+        }
+      }
+    },
     "home.tdee.fromHealth": {
       "comment": "Hint shown when the TDEE estimate was refined using a recent Apple Health bodyweight sample.",
       "extractionState": "manual",
@@ -2583,6 +2619,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "Borrar marcados"
+          }
+        }
+      }
+    },
+    "shopping.clearChecked.error": {
+      "comment": "Shown when clearing checked shopping items couldn't be saved to the server.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some items couldn't be cleared. Check your connection and try again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron borrar algunos artículos. Revisa tu conexión e inténtalo de nuevo."
+          }
+        }
+      }
+    },
+    "shopping.clearChecked.error.title": {
+      "comment": "Title of the alert shown when clearing checked shopping items fails.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't clear items"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudieron borrar"
           }
         }
       }

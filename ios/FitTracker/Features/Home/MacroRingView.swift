@@ -34,6 +34,13 @@ struct MacroRingView: View {
                     .foregroundStyle(theme.textTertiary)
             }
         }
+        // The concentric rings are decorative individually; VoiceOver used to
+        // read just "60% meta" (review Flash D1). Collapse them into one element
+        // that announces each macro's progress toward goal.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(
+            "dashboard.macros.progress \(Int(caloriePct * 100)) \(Int(carbsPct * 100)) \(Int(fatPct * 100))"
+        ))
     }
 
     private func ring(progress: Double, color: Color, lineWidth: CGFloat, inset: CGFloat) -> some View {

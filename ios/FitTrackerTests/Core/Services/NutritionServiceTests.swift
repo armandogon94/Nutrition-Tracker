@@ -53,14 +53,16 @@ struct NutritionServiceTests {
     @Test("Warm cache: returns cached immediately, refreshes in background")
     func warm_returnsCachedImmediately() async throws {
         let (sut, ctx, uid) = try makeSUT()
-        // Fixed UTC date so seed key and response JSON ("2026-04-25") align
-        // regardless of test-runner timezone.
-        var cal = Calendar(identifier: .iso8601)
-        cal.timeZone = TimeZone(identifier: "UTC")!
-        let date = cal.date(from: DateComponents(year: 2026, month: 4, day: 25)) ?? Date()
+        // The request date is April 25 NOON LOCAL, so its local nutrition day is
+        // April 25 in any timezone (review B10). The cache key is derived from
+        // the local day via `LocalDay.cacheKeyDate`, which matches both the seed
+        // below and the backend's "2026-04-25" (decoded as UTC-midnight) — so
+        // the warm read hits regardless of test-runner timezone.
+        let date = LocalDay.calendar()
+            .date(from: DateComponents(year: 2026, month: 4, day: 25, hour: 12)) ?? Date()
 
         ctx.insert(DailyNutritionEntity(
-            userId: uid, date: date,
+            userId: uid, date: LocalDay.cacheKeyDate(for: date),
             calories: 1500, proteinG: 100, carbsG: 150, fatG: 50, fiberG: 20
         ))
         try ctx.save()
