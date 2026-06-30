@@ -50,15 +50,6 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: "1"
         ENABLE_PREVIEWS: "YES"
-      # Backend base URL per build configuration (review C1). Debug points at
-      # the local dev server; Release/TestFlight must talk to production over
-      # HTTPS. Wired into Info.plist below as `API_BASE_URL: $(API_BASE_URL)`,
-      # then read + hardened by `APIConfig`.
-      configs:
-        Debug:
-          API_BASE_URL: http://localhost:8001
-        Release:
-          API_BASE_URL: https://api.fit.armandointeligencia.com
         SWIFT_EMIT_LOC_STRINGS: "YES"
         GENERATE_INFOPLIST_FILE: "YES"
         TARGETED_DEVICE_FAMILY: "1"
@@ -68,6 +59,15 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: "FitTracker"
         INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         ASSETCATALOG_COMPILER_APPICON_NAME: "AppIcon"
+      # Backend base URL per build configuration (review C1). Debug points at
+      # the local dev server; Release/TestFlight must talk to production over
+      # HTTPS. Wired into Info.plist below as `API_BASE_URL: $(API_BASE_URL)`,
+      # then read + hardened by `APIConfig`.
+      configs:
+        Debug:
+          API_BASE_URL: http://localhost:8001
+        Release:
+          API_BASE_URL: https://api.fit.armandointeligencia.com
     info:
       path: FitTracker/Info.plist
       properties:
