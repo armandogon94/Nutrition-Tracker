@@ -57,9 +57,16 @@ async def _rate_limit_handler(request: Request, exc: RateLimitExceeded) -> JSONR
     )
 
 
+# In production, trust ONLY the configured frontend origin. Localhost dev
+# origins are added solely outside production so a malicious local web app on a
+# whitelisted port can't make credentialed calls against the prod API (codex A4).
+_cors_origins = [settings.frontend_url]
+if settings.environment != "production":
+    _cors_origins += ["http://localhost:3003", "http://localhost:3030", "http://localhost:3099"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[settings.frontend_url, "http://localhost:3003", "http://localhost:3030", "http://localhost:3099"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type"],
