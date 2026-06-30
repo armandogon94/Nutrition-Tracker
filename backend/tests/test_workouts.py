@@ -660,16 +660,23 @@ async def test_pr_concurrent_first_sets_converge(test_user, db_session, setup_db
 
     _engine, session_factory = setup_db
 
-    # Two independent sessions, both inserting the first PR for the same key.
-    async with session_factory() as s1, session_factory() as s2:
-        pr1 = await check_and_update_pr(s1, TEST_USER_ID, exercise.id, 100.0, 5)
-        pr2 = await check_and_update_pr(s2, TEST_USER_ID, exercise.id, 120.0, 5)
-        assert pr1 is True
-        assert pr2 is True
-        await s1.commit()
-        # The second commit conflicts on uq_personal_records_user_exercise; the
-        # upsert resolves it to an UPDATE (120 > 100) rather than a duplicate row.
-        await s2.commit()
+    # Two independent sessions race the first PR for the same key. Each runs as
+    # its own task and commits its own transaction, so PostgreSQL serializes the
+    # conflicting INSERT ... ON CONFLICT on uq_personal_records_user_exercise:
+    # one inserts, the other resolves to an UPDATE — never a duplicate row.
+    # (Awaiting them sequentially in a single coroutine would DEADLOCK: the 2nd
+    # INSERT blocks on the 1st uncommitted txn, whose commit only comes later in
+    # the same code path. Real requests don't — they commit independently.)
+    import asyncio
+
+    async def _race(weight: float) -> bool:
+        async with session_factory() as s:
+            is_pr = await check_and_update_pr(s, TEST_USER_ID, exercise.id, weight, 5)
+            await s.commit()
+            return is_pr
+
+    results = await asyncio.gather(_race(100.0), _race(120.0))
+    assert any(results)
 
     # Exactly one PR row survives, and a later read does NOT raise.
     result = await db_session.execute(

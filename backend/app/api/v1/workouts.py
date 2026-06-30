@@ -209,7 +209,13 @@ async def log_set(
         insert_stmt = (
             pg_insert(WorkoutSet)
             .values(session_id=session_id, is_pr=False, **data.model_dump())
-            .on_conflict_do_nothing(index_elements=["session_id", "client_set_id"])
+            # The uniqueness is a PARTIAL index (WHERE client_set_id IS NOT NULL),
+            # so ON CONFLICT must repeat that predicate to infer it — otherwise
+            # PostgreSQL raises "no unique/exclusion constraint matching".
+            .on_conflict_do_nothing(
+                index_elements=["session_id", "client_set_id"],
+                index_where=WorkoutSet.client_set_id.isnot(None),
+            )
             .returning(WorkoutSet.id)
         )
         inserted = (await db.execute(insert_stmt)).scalar_one_or_none()
