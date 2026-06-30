@@ -48,7 +48,11 @@ struct LoginView: View {
                 .padding(20)
                 .themedCard()
 
+                // Seeded test-account shortcuts are DEBUG-only so they are
+                // stripped from Release/TestFlight builds (review Gemini-Pro).
+                #if DEBUG
                 quickPickCard
+                #endif
             }
             .padding(20)
             .frame(maxWidth: .infinity)
@@ -155,6 +159,7 @@ struct LoginView: View {
         }
     }
 
+    #if DEBUG
     private var quickPickCard: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("CUENTAS DE PRUEBA (DEBUG)")
@@ -200,6 +205,7 @@ struct LoginView: View {
         password = "test1234"
         Task { await login() }
     }
+    #endif
 
     // MARK: - Actions
 

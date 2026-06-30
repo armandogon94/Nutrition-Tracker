@@ -43,22 +43,13 @@ final class WorkoutService: WorkoutLoggingServiceProtocol {
 
     // MARK: - 1RM (pure, mirrors backend estimate_1rm)
 
-    /// Average of the Brzycki and Epley one-rep-max estimates. Accurate in
-    /// the 2–10 rep range (per CLAUDE.md). Mirrors the backend so on-device
-    /// PR detection agrees with the server's `is_pr`.
-    ///
-    /// - `reps <= 0` or `weight <= 0` -> 0 (not a valid lift to compare).
-    /// - `reps == 1` -> the weight itself (a true 1RM).
-    /// - `reps >= 37` is capped to 36 to avoid Brzycki's divide-by-zero.
+    /// Average of the Brzycki and Epley one-rep-max estimates. Mirrors the
+    /// backend so on-device PR detection agrees with the server's `is_pr`.
+    /// Delegates to the shared `Formulas.estimate1RM` (review Flash F2) so the
+    /// math lives in exactly one place; the signature is preserved for callers
+    /// and tests.
     nonisolated static func estimate1RM(weightKg: Double, reps: Int) -> Double {
-        guard weightKg > 0, reps > 0 else { return 0 }
-        if reps == 1 { return weightKg }
-        let r = Double(min(reps, 36))
-        let brzycki = weightKg * (36.0 / (37.0 - r))
-        let epley = weightKg * (1.0 + r / 30.0)
-        // Banker's rounding (half-to-even) to match Python round() in
-        // backend/app/services/workout_service.py exactly.
-        return ((brzycki + epley) / 2 * 10).rounded(.toNearestOrEven) / 10
+        Formulas.estimate1RM(weightKg: weightKg, reps: reps)
     }
 
     // MARK: - Start session

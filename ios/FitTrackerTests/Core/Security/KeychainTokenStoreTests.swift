@@ -5,6 +5,7 @@
 //
 
 import Foundation
+import Security
 import Testing
 @testable import FitTracker
 
@@ -83,5 +84,35 @@ struct KeychainTokenStoreTests {
         #expect(sut.currentAccessToken() == nil)
         #expect(sut.currentRefreshToken() == nil)
         #expect(sut.accessTokenExpiry() == nil)
+    }
+
+    // Review A3: access and refresh tokens must be stored with the
+    // `…ThisDeviceOnly` accessibility class so they are excluded from iCloud
+    // Keychain and encrypted device backups (no backup/migration exfiltration).
+    @Test("Tokens use AfterFirstUnlockThisDeviceOnly accessibility")
+    func tokens_useThisDeviceOnlyAccessibility() async {
+        let service = "test.fittracker.\(UUID().uuidString)"
+        let sut = KeychainTokenStore(service: service)
+        sut.clearAll()
+        await sut.updateAccessToken("a")
+        await sut.updateRefreshToken("r")
+
+        for account in ["default.access", "default.refresh"] {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccount as String: account,
+                kSecReturnAttributes as String: true,
+                kSecMatchLimit as String: kSecMatchLimitOne
+            ]
+            var result: CFTypeRef?
+            let status = SecItemCopyMatching(query as CFDictionary, &result)
+            #expect(status == errSecSuccess)
+            let attrs = result as? [String: Any]
+            let accessible = attrs?[kSecAttrAccessible as String] as? String
+            #expect(accessible == (kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String))
+        }
+
+        sut.clearAll()
     }
 }

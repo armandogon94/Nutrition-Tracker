@@ -70,6 +70,10 @@ struct PRCelebrationOverlay: View {
                 onDismiss()
             }
         }
+        // Trap VoiceOver inside the celebration (review Flash D3): without
+        // `.isModal` a swipe could move focus to the active session underneath
+        // while the overlay is still up.
+        .accessibilityAddTraits(.isModal)
     }
 
     private var localizedSubtitle: String {

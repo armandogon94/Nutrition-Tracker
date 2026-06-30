@@ -4,9 +4,11 @@
 //  and access-token expiry under a configurable service/account pair so
 //  test instances don't collide with production data.
 //
-//  Accessibility: kSecAttrAccessibleAfterFirstUnlock — lets background
-//  refresh work immediately after device unlock without requiring the
-//  user to foreground the app.
+//  Accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly — lets
+//  background refresh work immediately after device unlock without requiring
+//  the user to foreground the app, while the `ThisDeviceOnly` qualifier keeps
+//  the items out of iCloud Keychain and encrypted device backups so a copied
+//  backup / migration can't exfiltrate a long-lived refresh token (review A3).
 //
 
 import Foundation
@@ -86,12 +88,18 @@ final class KeychainTokenStore: TokenProvider, @unchecked Sendable {
 
     // MARK: - Low-level Keychain ops
 
+    /// Accessibility class for every stored token. `ThisDeviceOnly` blocks
+    /// inclusion in iCloud Keychain and encrypted backups (review A3); the
+    /// `AfterFirstUnlock` part still permits background refresh post-unlock.
+    /// Defined once so the add and update paths can never drift.
+    private static let accessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+
     private func baseQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+            kSecAttrAccessible as String: Self.accessibility
         ]
     }
 
@@ -101,7 +109,7 @@ final class KeychainTokenStore: TokenProvider, @unchecked Sendable {
 
         let attrs: [String: Any] = [
             kSecValueData as String: data,
-            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+            kSecAttrAccessible as String: Self.accessibility
         ]
 
         let status = SecItemUpdate(query as CFDictionary, attrs as CFDictionary)

@@ -34,6 +34,10 @@ struct ShoppingListView: View {
     @State private var items: [ShoppingItem] = []
     @State private var listId: UUID?
     @State private var isWorking = false
+    /// Set when "clear checked" couldn't fully persist (review Flash B4), so
+    /// the user learns the change didn't reach the server rather than seeing a
+    /// silent partial clear that reappears on the next sync.
+    @State private var clearError: String?
 
     init(initialItems: [ShoppingItem]? = nil, planId: UUID? = nil) {
         self.initialItems = initialItems
@@ -63,6 +67,14 @@ struct ShoppingListView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { toolbarContent }
         .task { await bootstrap() }
+        .alert(
+            Text("shopping.clearChecked.error.title"),
+            isPresented: Binding(get: { clearError != nil }, set: { if !$0 { clearError = nil } })
+        ) {
+            Button(role: .cancel) { clearError = nil } label: { Text("common_close") }
+        } message: {
+            if let clearError { Text(clearError) }
+        }
     }
 
     // MARK: - Content
@@ -243,10 +255,23 @@ struct ShoppingListView: View {
         guard let service, let listId else { return }
         isWorking = true
         defer { isWorking = false }
+        // Don't swallow failures with `try?` (review Flash B4): a failed
+        // un-check would optimistically clear locally but reappear on the next
+        // server sync. Stop on the first failure (typically offline — the rest
+        // would fail too) and always reconcile the displayed list from the
+        // cache so the UI reflects exactly what persisted, not an optimistic
+        // state the server never accepted.
+        var failed = false
         for item in items where item.checked {
-            try? await service.setChecked(item.id, checked: false, listId: listId)
+            do {
+                try await service.setChecked(item.id, checked: false, listId: listId)
+            } catch {
+                failed = true
+                break
+            }
         }
         items = await reloadFromCache()
+        if failed { clearError = String(localized: "shopping.clearChecked.error") }
     }
 
     private func regenerate() async {

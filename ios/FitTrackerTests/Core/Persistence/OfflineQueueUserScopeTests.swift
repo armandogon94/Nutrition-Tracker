@@ -126,6 +126,75 @@ struct OfflineQueueOwnerScopeTests {
     }
 }
 
+// MARK: - OfflineQueue corruption quarantine (review C4 / Flash B1)
+
+@Suite("OfflineQueue corruption quarantine", .serialized)
+struct OfflineQueueQuarantineTests {
+
+    private func makeDefaults() -> (UserDefaults, String) {
+        let suiteName = "test.fittracker.\(UUID().uuidString)"
+        return (UserDefaults(suiteName: suiteName)!, "queue")
+    }
+
+    @Test("corrupt blob is quarantined, not silently dropped")
+    func corruptBlob_isQuarantined() async {
+        let (defaults, key) = makeDefaults()
+        // Seed an undecodable blob under the live queue key.
+        let garbage = Data("{ not valid pending mutations ]".utf8)
+        defaults.set(garbage, forKey: key)
+
+        let q = OfflineQueue(storageKey: key, defaults: defaults)
+
+        // Reading yields empty (the queue can't decode it)...
+        let items = await q.peekAll()
+        #expect(items.isEmpty)
+
+        // ...but the raw bytes are preserved under the quarantine key, and the
+        // primary key was cleared so we don't re-attempt the same decode.
+        let quarantined = defaults.data(forKey: q.corruptedKey)
+        #expect(quarantined == garbage, "corrupt payload must be copied to the quarantine key")
+        #expect(defaults.data(forKey: key) == nil, "primary key cleared after quarantine")
+    }
+
+    @Test("a later enqueue after corruption does not erase the quarantined blob")
+    func enqueueAfterCorruption_keepsQuarantine() async {
+        let (defaults, key) = makeDefaults()
+        let garbage = Data("totally not json".utf8)
+        defaults.set(garbage, forKey: key)
+
+        let q = OfflineQueue(storageKey: key, defaults: defaults)
+        // First read triggers the quarantine.
+        _ = await q.peekAll()
+
+        // A brand-new write proceeds normally on the (now-cleared) primary key.
+        let owner = UUID()
+        await q.enqueue(.deleteMealItem(.init(ownerId: owner, id: UUID())))
+        let items = await q.peekAll()
+        #expect(items.count == 1, "new mutations still enqueue after a corruption event")
+
+        // The quarantined blob is still recoverable — never overwritten.
+        #expect(defaults.data(forKey: q.corruptedKey) == garbage)
+    }
+
+    @Test("first corruption wins: a second corrupt read doesn't clobber the quarantine")
+    func secondCorruption_keepsFirstBlob() async {
+        let (defaults, key) = makeDefaults()
+        let first = Data("first-corrupt".utf8)
+        defaults.set(first, forKey: key)
+
+        let q = OfflineQueue(storageKey: key, defaults: defaults)
+        _ = await q.peekAll()   // quarantines `first`, clears primary
+
+        // Simulate a second corruption landing on the primary key later.
+        let second = Data("second-corrupt".utf8)
+        defaults.set(second, forKey: key)
+        _ = await q.peekAll()
+
+        #expect(defaults.data(forKey: q.corruptedKey) == first,
+                "the earliest corrupt blob is preserved, not overwritten")
+    }
+}
+
 // MARK: - SyncManager owner guard
 
 @Suite("SyncManager owner guard", .serialized)

@@ -72,6 +72,17 @@ final class HealthKitService {
     private(set) var isWorkoutWriteAuthorized: Bool = false
     private(set) var isBodyMassReadAuthorized: Bool = false
 
+    /// In-flight ExternalUUIDs currently between their existence-query and save
+    /// (review C2). The HealthKit existence query is defense-in-depth, but it is
+    /// check-then-save with an `await` in the middle, and `@MainActor` is
+    /// REENTRANT across that await — so two concurrent `writeMealEntry` /
+    /// `writeWorkout` calls for the same id could both query "not found" and
+    /// both save a duplicate. We open a synchronous critical section by
+    /// inserting the id here BEFORE the first await; a concurrent call for the
+    /// same id sees it in-flight and skips. Set membership is mutated only on
+    /// the MainActor with no await in between, so the check-and-insert is atomic.
+    private var inFlightExternalUUIDs: Set<String> = []
+
     /// Slice 2.5: seam for the bodyweight READ query. HKHealthStore /
     /// HKSampleQuery can't be mocked directly, so tests inject a closure
     /// that returns the `[HKQuantitySample]` a real `.bodyMass` query would
@@ -191,7 +202,10 @@ final class HealthKitService {
     /// Write the given MealItem's macro samples. Idempotency is REAL: before
     /// saving we query HealthKit for any existing sample carrying this
     /// MealItem's ExternalUUID and skip the write when one is found, so
-    /// re-logging the same item never duplicates Health rows.
+    /// re-logging the same item never duplicates Health rows. The query+save is
+    /// additionally wrapped in a per-UUID in-memory critical section so two
+    /// concurrent calls for the same item can't both pass the query and double
+    /// up (review C2).
     func writeMealEntry(_ item: MealItem, mealDate: Date = .now) async throws {
         guard store != nil else { throw HealthKitError.unavailable }
         if !isDietaryWriteAuthorized {
@@ -200,8 +214,16 @@ final class HealthKitService {
         let samples = Self.makeSamples(for: item, mealDate: mealDate)
         guard !samples.isEmpty else { return }
 
-        // Idempotency guard: skip if a sample with this ExternalUUID exists.
-        if try await externalUUIDExists(item.id.uuidString, types: Self.writeTypes) {
+        let uuid = item.id.uuidString
+        // Open the critical section synchronously (no await before the insert),
+        // so a concurrent call for the same id is deduped here rather than
+        // racing the existence query below.
+        guard beginCriticalSection(uuid) else { return }
+        defer { endCriticalSection(uuid) }
+
+        // Idempotency guard (defense in depth): skip if a sample with this
+        // ExternalUUID already exists in HealthKit from a previous session.
+        if try await externalUUIDExists(uuid, types: Self.writeTypes) {
             return
         }
 
@@ -210,6 +232,25 @@ final class HealthKitService {
         } catch {
             throw HealthKitError.writeFailed(error.localizedDescription)
         }
+    }
+
+    // MARK: - Per-UUID critical section (review C2)
+
+    /// Claim the in-flight slot for `uuid`. Returns false when another call is
+    /// already mid-write for the same id (so the caller should skip). Runs
+    /// entirely on the MainActor with NO suspension point between the membership
+    /// check and the insert, which is what makes it atomic despite MainActor
+    /// reentrancy across the later `await`s.
+    private func beginCriticalSection(_ uuid: String) -> Bool {
+        if inFlightExternalUUIDs.contains(uuid) { return false }
+        inFlightExternalUUIDs.insert(uuid)
+        return true
+    }
+
+    /// Release the in-flight slot for `uuid` once the query+save completes
+    /// (success OR failure) so a later legitimate retry isn't blocked.
+    private func endCriticalSection(_ uuid: String) {
+        inFlightExternalUUIDs.remove(uuid)
     }
 
     // MARK: - Idempotency + save funnels
@@ -420,8 +461,15 @@ extension HealthKitService {
 
         try await requestWorkoutAuthorizationIfNeeded()
 
-        // Idempotency guard: skip if a workout with this ExternalUUID exists.
-        if try await externalUUIDExists(session.id.uuidString, types: Self.workoutShareTypes) {
+        let uuid = session.id.uuidString
+        // Per-UUID critical section so two concurrent re-finishes of the same
+        // session can't both pass the existence query and double-write (C2).
+        guard beginCriticalSection(uuid) else { return }
+        defer { endCriticalSection(uuid) }
+
+        // Idempotency guard (defense in depth): skip if a workout with this
+        // ExternalUUID already exists from a previous session.
+        if try await externalUUIDExists(uuid, types: Self.workoutShareTypes) {
             return
         }
 

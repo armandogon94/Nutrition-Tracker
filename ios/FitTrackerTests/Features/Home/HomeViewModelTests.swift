@@ -106,3 +106,83 @@ struct HomeViewModelTests {
         #expect(result.effectiveWeightKg == 79)
     }
 }
+
+// MARK: - refresh() error surfacing + retry (review Flash B3)
+
+/// Profile stub whose `profile()` can be flipped between throwing and
+/// succeeding so we can drive the error → retry → recover path.
+@MainActor
+private final class StubProfileService: ProfileServiceProtocol {
+    var shouldThrow: Bool
+    let stubbed: UserProfile
+    private(set) var profileCallCount = 0
+
+    init(shouldThrow: Bool, stubbed: UserProfile) {
+        self.shouldThrow = shouldThrow
+        self.stubbed = stubbed
+    }
+
+    func profile() async throws -> UserProfile {
+        profileCallCount += 1
+        if shouldThrow { throw APIError.offline }
+        return stubbed
+    }
+    func updateProfile(_ profile: UserProfile) async throws {}
+    func goal() async throws -> NutritionGoal { MockData.goal }
+    func updateGoal(_ goal: NutritionGoal) async throws {}
+    func updatePreset(_ preset: GoalPreset) async throws {}
+}
+
+@MainActor
+@Suite("HomeViewModel refresh error handling")
+struct HomeViewModelRefreshTests {
+
+    private let profile = UserProfile(
+        weightKg: 80, heightCm: 180, age: 30, sex: .male, activity: .moderate
+    )
+
+    /// A HealthKit service with no store so `latestBodyMassReading()` returns
+    /// nil immediately — keeps these tests off the real shared singleton.
+    private func makeHealthKit() -> HealthKitService {
+        HealthKitService(store: nil)
+    }
+
+    @Test("A failed profile fetch surfaces loadError and leaves refined nil")
+    func refresh_failure_setsError() async {
+        let stub = StubProfileService(shouldThrow: true, stubbed: profile)
+        let vm = HomeViewModel(profileService: stub, healthKit: makeHealthKit())
+
+        await vm.refresh()
+
+        #expect(vm.loadError != nil, "a genuine profile failure must be surfaced, not swallowed")
+        #expect(vm.refined == nil)
+    }
+
+    @Test("retry() after recovery clears the error and computes TDEE")
+    func retry_recovers() async {
+        let stub = StubProfileService(shouldThrow: true, stubbed: profile)
+        let vm = HomeViewModel(profileService: stub, healthKit: makeHealthKit())
+
+        await vm.refresh()
+        #expect(vm.loadError != nil)
+
+        // Backend comes back; the retry affordance should now succeed.
+        stub.shouldThrow = false
+        await vm.retry()
+
+        #expect(vm.loadError == nil, "a successful retry clears the error state")
+        #expect(vm.refined != nil, "TDEE is computed once the profile loads")
+        #expect(stub.profileCallCount == 2, "retry re-fetched the profile")
+    }
+
+    @Test("A successful refresh has no error")
+    func refresh_success_noError() async {
+        let stub = StubProfileService(shouldThrow: false, stubbed: profile)
+        let vm = HomeViewModel(profileService: stub, healthKit: makeHealthKit())
+
+        await vm.refresh()
+
+        #expect(vm.loadError == nil)
+        #expect(vm.refined != nil)
+    }
+}

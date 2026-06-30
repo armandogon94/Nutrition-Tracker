@@ -52,9 +52,9 @@ final class NutritionService: NutritionServiceProtocol {
     /// reads aggregated calories from DailyNutritionEntity.
     func meals(for date: Date) async throws -> [Meal] {
         guard let uid = userId() else { return [] }
-        let dayStart = Calendar(identifier: .iso8601).startOfDay(for: date)
-        let dayEnd = Calendar(identifier: .iso8601)
-            .date(byAdding: .day, value: 1, to: dayStart) ?? dayStart
+        // LOCAL day boundaries (review B10).
+        let dayStart = LocalDay.startOfDay(for: date)
+        let dayEnd = LocalDay.nextDay(after: date)
         let descriptor = FetchDescriptor<MealEntity>(
             predicate: #Predicate {
                 $0.userId == uid && $0.mealDate >= dayStart && $0.mealDate < dayEnd
@@ -83,7 +83,13 @@ final class NutritionService: NutritionServiceProtocol {
 
     private func cachedDailyNutrition(for date: Date) throws -> DailyNutrition? {
         guard let uid = userId() else { return nil }
-        let key = DailyNutritionEntity.makeKey(userId: uid, date: date)
+        // Key by the LOCAL calendar day (review B10). `makeKey` applies
+        // UTC-startOfDay and lives in the (frozen) schema, so we feed it the
+        // UTC-midnight of the local day. The backend returns the nutrition date
+        // for that same local day, decoded as UTC-midnight, so the upsert below
+        // (which keys on the returned date) lands on the SAME key — the cache
+        // actually hits for evening LATAM users instead of missing every time.
+        let key = DailyNutritionEntity.makeKey(userId: uid, date: LocalDay.cacheKeyDate(for: date))
         let descriptor = FetchDescriptor<DailyNutritionEntity>(
             predicate: #Predicate { $0.dayKey == key }
         )
@@ -111,7 +117,8 @@ final class NutritionService: NutritionServiceProtocol {
     @discardableResult
     func refreshDailyNutrition(for date: Date) async throws -> DailyNutrition {
         guard let uid = userId() else { throw APIError.unauthorized }
-        let dateString = Self.dateFormatter.string(from: date)
+        // Request the user's LOCAL nutrition day (review B10), not the UTC day.
+        let dateString = LocalDay.dateString(for: date)
         let dto: DailyNutritionDTO = try await api.get(
             "/api/v1/nutrition/daily/\(dateString)"
         )
@@ -181,16 +188,8 @@ final class NutritionService: NutritionServiceProtocol {
         try context.save()
     }
 
-    // MARK: - Helpers
-
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.calendar = Calendar(identifier: .iso8601)
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = TimeZone(identifier: "UTC")
-        f.dateFormat = "yyyy-MM-dd"
-        return f
-    }()
+    // Date-only request strings are derived via `LocalDay.dateString` (review
+    // B10) so the daily fetch targets the user's local nutrition day.
 }
 
 // MARK: - DTOs (Slice 2.3 backend contract)
