@@ -179,6 +179,54 @@ async def test_add_meal_plan_item(auth_client, db_session):
     assert data["quantity_servings"] == 2.0
 
 
+# ---- Schema bounds (B5 / Flash A4, A5) ----
+
+
+@pytest.mark.parametrize(
+    "payload_overrides",
+    [
+        {"quantity_servings": -1000000},  # negative servings
+        {"quantity_servings": 0},  # zero servings (gt=0)
+        {"quantity_servings": 10001},  # above le=10000
+        {"quantity_grams": -500},  # negative grams
+        {"quantity_grams": 0},  # zero grams (gt=0)
+        {"quantity_grams": 100001},  # above le=100000
+    ],
+)
+async def test_add_meal_plan_item_rejects_out_of_bounds_quantity(
+    auth_client, db_session, payload_overrides
+):
+    """MealPlanItemCreate must reject negative/zero/overflow quantities so that
+    shopping-list aggregation can't produce negative or absurd grocery totals."""
+    product = await _create_product(db_session, "bounds")
+    create_resp = await auth_client.post(
+        "/api/v1/meal-plans",
+        json={"name": "Bounds Plan", "week_start_date": "2026-05-11"},
+    )
+    plan_id = create_resp.json()["id"]
+
+    payload = {
+        "product_id": str(product.id),
+        "day_of_week": 0,
+        "meal_type": "breakfast",
+        **payload_overrides,
+    }
+    response = await auth_client.post(
+        f"/api/v1/meal-plans/{plan_id}/items", json=payload
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("bad_name", ["", "   ", "\t\n"])
+async def test_create_meal_plan_rejects_blank_name(auth_client, bad_name):
+    """MealPlanCreate.name must reject blank / whitespace-only names."""
+    response = await auth_client.post(
+        "/api/v1/meal-plans",
+        json={"name": bad_name, "week_start_date": "2026-05-11"},
+    )
+    assert response.status_code == 422
+
+
 async def test_remove_meal_plan_item(auth_client, db_session):
     product = await _create_product(db_session, "plan-remove")
 

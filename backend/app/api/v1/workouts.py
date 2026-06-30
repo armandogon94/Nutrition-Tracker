@@ -2,7 +2,8 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -94,10 +95,15 @@ async def start_session(
     if client_id is not None:
         # Idempotency is scoped to the caller. If THIS user already started a
         # session with this id, return it unchanged — never duplicate, never
-        # clobber its sets. If the id happens to be owned by a different user
-        # (a UUID collision; astronomically unlikely in practice), we do NOT
-        # leak or hijack their row: fall through and let the server mint a
-        # fresh id for this caller instead.
+        # clobber its sets (this is what makes the offline-retry sweep safe to
+        # replay a "start").
+        #
+        # Flash G3 / Gemini-Pro: if the id is already taken by a DIFFERENT user
+        # (a UUID collision; astronomically unlikely in practice) we must NOT
+        # silently mint a new id. The client would keep using its original id
+        # for later /sessions/{id}/sets calls and 404. Instead return 409 so the
+        # client regenerates a fresh id and retries the whole start. We also do
+        # not leak or hijack the other user's row.
         existing = await db.execute(
             select(WorkoutSession).where(WorkoutSession.id == client_id)
         )
@@ -105,7 +111,10 @@ async def start_session(
         if existing_session is not None:
             if existing_session.user_id == user_id:
                 return existing_session
-            client_id = None  # collision with another user -> server-mint
+            raise HTTPException(
+                status_code=409,
+                detail="Session id already in use; regenerate and retry",
+            )
 
     # IDOR guard (Codex finding #5): a caller may only attach a program / day
     # they can actually see. Without this, an authenticated user could store
@@ -179,7 +188,60 @@ async def log_set(
     if ws.completed_at is not None:
         raise HTTPException(status_code=409, detail="Cannot add sets to a completed session")
 
-    # Check for PR
+    # B6 idempotent path: when the client supplies a client_set_id, a network
+    # timeout + retry (or the offline sweep) can replay the same set. Insert with
+    # ON CONFLICT (session_id, client_set_id) DO NOTHING, then re-select: a replay
+    # returns the original row instead of duplicating the set or re-firing the PR.
+    if data.client_set_id is not None:
+        existing = await db.execute(
+            select(WorkoutSet).where(
+                WorkoutSet.session_id == session_id,
+                WorkoutSet.client_set_id == data.client_set_id,
+            )
+        )
+        existing_set = existing.scalar_one_or_none()
+        if existing_set is not None:
+            return existing_set
+
+        # Not seen yet: race-insert. If a concurrent request wins the partial
+        # unique index, DO NOTHING returns no id and we re-select the winner —
+        # without running the PR upsert for this losing duplicate.
+        insert_stmt = (
+            pg_insert(WorkoutSet)
+            .values(session_id=session_id, is_pr=False, **data.model_dump())
+            # The uniqueness is a PARTIAL index (WHERE client_set_id IS NOT NULL),
+            # so ON CONFLICT must repeat that predicate to infer it — otherwise
+            # PostgreSQL raises "no unique/exclusion constraint matching".
+            .on_conflict_do_nothing(
+                index_elements=["session_id", "client_set_id"],
+                index_where=WorkoutSet.client_set_id.isnot(None),
+            )
+            .returning(WorkoutSet.id)
+        )
+        inserted = (await db.execute(insert_stmt)).scalar_one_or_none()
+        if inserted is None:
+            await db.flush()
+            winner = await db.execute(
+                select(WorkoutSet).where(
+                    WorkoutSet.session_id == session_id,
+                    WorkoutSet.client_set_id == data.client_set_id,
+                )
+            )
+            return winner.scalar_one()
+
+        # We inserted the row: now it's safe to evaluate the PR exactly once.
+        is_pr = await check_and_update_pr(
+            db, user_id, data.exercise_id, data.weight_kg, data.reps
+        )
+        if is_pr:
+            await db.execute(
+                update(WorkoutSet).where(WorkoutSet.id == inserted).values(is_pr=True)
+            )
+        await db.flush()
+        row = await db.execute(select(WorkoutSet).where(WorkoutSet.id == inserted))
+        return row.scalar_one()
+
+    # Legacy path (no idempotency key): preserve prior behaviour.
     is_pr = await check_and_update_pr(db, user_id, data.exercise_id, data.weight_kg, data.reps)
 
     workout_set = WorkoutSet(
@@ -202,11 +264,20 @@ async def complete_session(
     if not ws or ws.user_id != user_id:
         raise HTTPException(status_code=404, detail="Session not found")
 
+    # B6: make completion idempotent. A successful PATCH whose response is lost
+    # (app killed before local cleanup) gets replayed; returning the already
+    # completed session (200) lets the client converge instead of getting stuck
+    # on a 409 forever.
     if ws.completed_at is not None:
-        raise HTTPException(status_code=409, detail="Session already completed")
+        return ws
 
     ws.completed_at = utcnow_naive()
-    ws.duration_minutes = int((ws.completed_at - ws.started_at).total_seconds() / 60)
+    # Flash G1: clamp to >= 0. A client with a manipulated/forward clock can set
+    # started_at after completed_at, which would otherwise store a negative
+    # duration and corrupt analytics.
+    ws.duration_minutes = max(
+        0, int((ws.completed_at - ws.started_at).total_seconds() / 60)
+    )
     if data.notes:
         ws.notes = data.notes
 

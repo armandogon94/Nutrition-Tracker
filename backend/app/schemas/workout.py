@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.datetime_utils import UTCDateTime
+from app.core.datetime_utils import UTCDateTime, to_naive_utc
 from app.schemas.exercise import ExerciseResponse
 
 
@@ -57,7 +57,11 @@ class WorkoutProgramListResponse(BaseModel):
 
 
 class WorkoutProgramCreate(BaseModel):
-    name: str = Field(max_length=255)
+    # str_strip_whitespace turns a whitespace-only name ("   ") into "" so that
+    # min_length=1 rejects it; without stripping, min_length counts the spaces.
+    model_config = {"str_strip_whitespace": True}
+
+    name: str = Field(min_length=1, max_length=255)
     description: str | None = None
     program_type: str | None = None
     days_per_week: int = Field(ge=1, le=7)
@@ -77,10 +81,17 @@ class SessionCreate(BaseModel):
     @field_validator("started_at", mode="after")
     @classmethod
     def strip_tz(cls, v: datetime) -> datetime:
-        return v.replace(tzinfo=None) if v.tzinfo else v
+        # B9: a tz-aware instant must be converted to UTC BEFORE dropping tzinfo,
+        # otherwise e.g. 23:30-05:00 would be stored as 23:30Z instead of 04:30Z.
+        return to_naive_utc(v)
 
 
 class SetCreate(BaseModel):
+    # B6: optional client-supplied idempotency key. The iOS client mints a UUID
+    # per logged set; replaying the same client_set_id (timeout retry / offline
+    # sweep) must not duplicate the set. Persisted with a partial unique index on
+    # (session_id, client_set_id). When omitted, no idempotency is applied.
+    client_set_id: uuid.UUID | None = None
     exercise_id: uuid.UUID
     set_number: int = Field(ge=1, le=100)
     reps: int = Field(ge=0, le=1000)
@@ -117,7 +128,7 @@ class SessionResponse(BaseModel):
 
 
 class SessionComplete(BaseModel):
-    notes: str | None = None
+    notes: str | None = Field(default=None, max_length=5000)
 
 
 class PersonalRecordResponse(BaseModel):

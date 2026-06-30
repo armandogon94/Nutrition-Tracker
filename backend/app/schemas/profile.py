@@ -48,10 +48,10 @@ class GoalPresetUpdate(BaseModel):
 
 
 class CustomGoalUpdate(BaseModel):
-    custom_daily_calories: int = Field(gt=0)
-    custom_protein_g: int = Field(ge=0)
-    custom_carbs_g: int = Field(ge=0)
-    custom_fat_g: int = Field(ge=0)
+    custom_daily_calories: int = Field(gt=0, le=20000)
+    custom_protein_g: int = Field(ge=0, le=1000)
+    custom_carbs_g: int = Field(ge=0, le=2000)
+    custom_fat_g: int = Field(ge=0, le=1000)
 
 
 class TDEEResponse(BaseModel):

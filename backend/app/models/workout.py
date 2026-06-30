@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, ForeignKey, String, Text
+from sqlalchemy import Boolean, ForeignKey, Index, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -85,10 +85,23 @@ class WorkoutSession(Base):
 
 class WorkoutSet(Base):
     __tablename__ = "workout_sets"
+    # B6: a client-supplied idempotency key makes set logging replay-safe. The
+    # uniqueness is PARTIAL — only enforced when client_set_id IS NOT NULL — so
+    # legacy/server-minted sets (NULL key) are never blocked from coexisting.
+    __table_args__ = (
+        Index(
+            "uq_workout_sets_session_client_set",
+            "session_id",
+            "client_set_id",
+            unique=True,
+            postgresql_where=text("client_set_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workout_sessions.id", ondelete="CASCADE"))
     exercise_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercises.id"))
+    client_set_id: Mapped[uuid.UUID | None] = mapped_column()
     set_number: Mapped[int]
     reps: Mapped[int]
     weight_kg: Mapped[float | None] = mapped_column()
@@ -102,6 +115,16 @@ class WorkoutSet(Base):
 
 class PersonalRecord(Base):
     __tablename__ = "personal_records"
+    # B7: exactly one PR row per (user, exercise). Without this, two concurrent
+    # first-PR inserts both succeed and a later scalar_one_or_none() raises
+    # MultipleResultsFound, permanently 500-ing that user+exercise.
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "exercise_id",
+            name="uq_personal_records_user_exercise",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(index=True)
