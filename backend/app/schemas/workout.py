@@ -87,6 +87,11 @@ class SessionCreate(BaseModel):
 
 
 class SetCreate(BaseModel):
+    # B6: optional client-supplied idempotency key. The iOS client mints a UUID
+    # per logged set; replaying the same client_set_id (timeout retry / offline
+    # sweep) must not duplicate the set. Persisted with a partial unique index on
+    # (session_id, client_set_id). When omitted, no idempotency is applied.
+    client_set_id: uuid.UUID | None = None
     exercise_id: uuid.UUID
     set_number: int = Field(ge=1, le=100)
     reps: int = Field(ge=0, le=1000)

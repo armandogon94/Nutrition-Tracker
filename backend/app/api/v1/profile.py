@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_db
@@ -26,28 +27,32 @@ async def create_or_update_profile(
     data: ProfileCreate, user_id: UUID = Depends(get_current_user_id), db: AsyncSession = Depends(get_db)
 ) -> ProfileResponse:
     """Create or update user profile. Calculates BMR and TDEE."""
-    result = await db.execute(select(UserProfile).where(UserProfile.user_id == user_id))
-    profile = result.scalar_one_or_none()
-
     bmr = calculate_bmr(data.weight_kg, data.height_cm, data.age, data.sex)
     tdee = calculate_tdee(bmr, data.activity_level)
 
-    if profile:
-        for field, value in data.model_dump().items():
-            setattr(profile, field, value.value if isinstance(value, ActivityLevel) else value)
-        profile.bmr = bmr
-        profile.tdee = tdee
-    else:
-        profile = UserProfile(
-            user_id=user_id,
-            **{k: v.value if isinstance(v, ActivityLevel) else v for k, v in data.model_dump().items()},
-            bmr=bmr,
-            tdee=tdee,
-        )
-        db.add(profile)
-
-    await db.flush()
-    await db.refresh(profile)
+    # B8: single upsert keyed by the unique user_id instead of select-then-insert,
+    # so two concurrent first-time POSTs cannot both INSERT and violate
+    # uq_user_profiles_user_id (one would 500). ON CONFLICT updates the demographic
+    # fields + recomputed bmr/tdee but DELIBERATELY leaves goal_preset / custom_*
+    # untouched — those are owned by the /goals endpoints, matching the previous
+    # "update only the ProfileCreate fields" behaviour.
+    profile_fields = {
+        "weight_kg": data.weight_kg,
+        "height_cm": data.height_cm,
+        "age": data.age,
+        "sex": data.sex,
+        "activity_level": data.activity_level.value
+        if isinstance(data.activity_level, ActivityLevel)
+        else data.activity_level,
+    }
+    stmt = pg_insert(UserProfile).values(
+        user_id=user_id, bmr=bmr, tdee=tdee, **profile_fields
+    )
+    stmt = stmt.on_conflict_do_update(
+        index_elements=["user_id"],
+        set_={**profile_fields, "bmr": bmr, "tdee": tdee},
+    ).returning(UserProfile)
+    profile = (await db.execute(stmt)).scalar_one()
 
     # Calculate default macros if goal exists
     macros = None

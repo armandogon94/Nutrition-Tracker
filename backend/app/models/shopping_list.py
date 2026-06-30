@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, ForeignKey, String
+from sqlalchemy import Boolean, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -13,6 +13,13 @@ def _utcnow() -> datetime:
 
 class ShoppingList(Base):
     __tablename__ = "shopping_lists"
+    # B11: at most one generated list per (user, meal_plan). Without this,
+    # concurrent GET /meal-plans/{id}/shopping-list calls both delete-none then
+    # both insert, duplicating lists. NULL meal_plan_id rows (ad-hoc lists) are
+    # exempt because NULLs are distinct under a UNIQUE constraint in PostgreSQL.
+    __table_args__ = (
+        UniqueConstraint("user_id", "meal_plan_id", name="uq_shopping_lists_user_plan"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     user_id: Mapped[uuid.UUID] = mapped_column(index=True)

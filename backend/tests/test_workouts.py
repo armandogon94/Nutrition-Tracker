@@ -164,12 +164,12 @@ async def test_start_session_idempotent_returns_existing(auth_client, db_session
     assert matches[0]["total_sets"] == 1
 
 
-async def test_start_session_client_id_not_leaked_across_users(
+async def test_start_session_client_id_collision_across_users_returns_409(
     auth_client, auth_client_b, db_session
 ):
-    """Idempotency must be scoped to the caller. User B replaying user A's id
-    must NOT return (or hijack) user A's session — it creates B's own, or 404s
-    on read, but never leaks A's data."""
+    """Flash G3: when user B posts an id already owned by user A, the server must
+    return 409 (forcing B to regenerate) — never silently mint a new id (which
+    would 404 B's later set-logs) and never leak/hijack A's row."""
     client_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).isoformat()
 
@@ -181,18 +181,21 @@ async def test_start_session_client_id_not_leaked_across_users(
     assert a_resp.status_code == 201
     assert a_resp.json()["user_id"] == str(TEST_USER_ID)
 
-    # User B posts the SAME id. The response must belong to B, never to A.
+    # User B posts the SAME id -> 409, regenerate and retry. A's data untouched.
     b_resp = await auth_client_b.post(
         "/api/v1/workouts/sessions",
         json={"id": client_id, "started_at": now},
     )
-    assert b_resp.status_code in (200, 201)
-    assert b_resp.json()["user_id"] == str(TEST_USER_B_ID)
+    assert b_resp.status_code == 409
 
     # And B cannot read A's session by that id (A's row is still A's).
     a_read = await auth_client.get(f"/api/v1/workouts/sessions/{client_id}")
     assert a_read.status_code == 200
     assert a_read.json()["user_id"] == str(TEST_USER_ID)
+
+    # B reading that id gets 404 (not A's session).
+    b_read = await auth_client_b.get(f"/api/v1/workouts/sessions/{client_id}")
+    assert b_read.status_code == 404
 
 
 async def test_get_session(auth_client):
@@ -240,6 +243,51 @@ async def test_log_set(auth_client, db_session):
     assert data["rpe"] == 7.0
     # First set for this exercise should be a PR
     assert data["is_pr"] is True
+
+
+async def test_log_set_idempotent_with_client_set_id(auth_client, db_session):
+    """B6: replaying the same client_set_id (timeout retry / offline sweep) must
+    NOT duplicate the set — it returns the original row and leaves exactly one
+    set on the session."""
+    exercise = await _create_exercise(db_session, "idem-set")
+    now = datetime.now(timezone.utc).isoformat()
+    session_resp = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"started_at": now},
+    )
+    session_id = session_resp.json()["id"]
+
+    client_set_id = str(uuid.uuid4())
+    payload = {
+        "client_set_id": client_set_id,
+        "exercise_id": str(exercise.id),
+        "set_number": 1,
+        "reps": 8,
+        "weight_kg": 90.0,
+    }
+
+    first = await auth_client.post(
+        f"/api/v1/workouts/sessions/{session_id}/sets", json=payload
+    )
+    assert first.status_code == 201
+    first_id = first.json()["id"]
+    assert first.json()["is_pr"] is True
+
+    # Replay the exact same set: same row back, not a duplicate.
+    second = await auth_client.post(
+        f"/api/v1/workouts/sessions/{session_id}/sets", json=payload
+    )
+    assert second.status_code in (200, 201)
+    assert second.json()["id"] == first_id
+
+    # Exactly one set is attached to the session.
+    session = await auth_client.get(f"/api/v1/workouts/sessions/{session_id}")
+    assert len(session.json()["sets"]) == 1
+
+    # And the PR was not double-counted: one PR row for this exercise.
+    prs = await auth_client.get("/api/v1/workouts/prs")
+    pr_rows = [r for r in prs.json() if r["exercise"]["id"] == str(exercise.id)]
+    assert len(pr_rows) == 1
 
 
 async def test_log_set_session_not_found(auth_client, db_session):
@@ -309,6 +357,53 @@ async def test_start_session_converts_offset_to_utc(auth_client):
     # UTCDateTime serializes with an explicit offset; the instant must be 04:30Z.
     parsed = datetime.fromisoformat(started_at)
     assert parsed == datetime(2026, 6, 27, 4, 30, tzinfo=timezone.utc)
+
+
+async def test_complete_session_is_idempotent(auth_client):
+    """B6: re-completing an already-completed session returns the session (200),
+    not 409, so a replayed PATCH (app killed before local cleanup) converges."""
+    now = datetime.now(timezone.utc).isoformat()
+    session_resp = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"started_at": now},
+    )
+    session_id = session_resp.json()["id"]
+
+    first = await auth_client.patch(
+        f"/api/v1/workouts/sessions/{session_id}/complete",
+        json={"notes": "done"},
+    )
+    assert first.status_code == 200
+    first_completed_at = first.json()["completed_at"]
+
+    # Replay the completion: must return the same completed session, not 409.
+    second = await auth_client.patch(
+        f"/api/v1/workouts/sessions/{session_id}/complete",
+        json={"notes": "done again"},
+    )
+    assert second.status_code == 200
+    assert second.json()["completed_at"] == first_completed_at
+    # Original notes are preserved (the replay does not overwrite).
+    assert second.json()["notes"] == "done"
+
+
+async def test_complete_session_clamps_negative_duration(auth_client):
+    """Flash G1: a future started_at (client clock manipulation) must not yield a
+    negative duration; it is clamped to >= 0."""
+    # started_at one hour in the future relative to the server's completion time.
+    future = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    session_resp = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"started_at": future},
+    )
+    session_id = session_resp.json()["id"]
+
+    response = await auth_client.patch(
+        f"/api/v1/workouts/sessions/{session_id}/complete",
+        json={},
+    )
+    assert response.status_code == 200
+    assert response.json()["duration_minutes"] == 0
 
 
 async def test_get_workout_history(auth_client, db_session):
@@ -509,3 +604,80 @@ async def test_get_personal_records(auth_client, db_session):
     assert pr[0]["max_reps_at_weight"] == 5
     assert pr[0]["estimated_1rm"] is not None
     assert pr[0]["estimated_1rm"] > 120.0  # 1RM should be higher than 5RM
+
+
+async def test_pr_repeated_sets_converge_to_single_row_with_max(
+    auth_client, db_session
+):
+    """B7: repeatedly logging sets for the same exercise must converge to exactly
+    ONE personal_records row holding the highest estimated 1RM. A weaker later
+    set must not clobber a stronger PR (no lost update), and no duplicate rows."""
+    exercise = await _create_exercise(db_session, "pr-converge")
+    now = datetime.now(timezone.utc).isoformat()
+    session_resp = await auth_client.post(
+        "/api/v1/workouts/sessions",
+        json={"started_at": now},
+    )
+    session_id = session_resp.json()["id"]
+
+    async def log(weight, reps):
+        return await auth_client.post(
+            f"/api/v1/workouts/sessions/{session_id}/sets",
+            json={
+                "exercise_id": str(exercise.id),
+                "set_number": 1,
+                "reps": reps,
+                "weight_kg": weight,
+            },
+        )
+
+    # First set: PR. Heavier set: new PR. Lighter set: NOT a PR.
+    r1 = await log(100.0, 5)
+    assert r1.json()["is_pr"] is True
+    r2 = await log(140.0, 5)
+    assert r2.json()["is_pr"] is True
+    r3 = await log(80.0, 5)
+    assert r3.json()["is_pr"] is False
+
+    prs = await auth_client.get("/api/v1/workouts/prs")
+    pr_rows = [r for r in prs.json() if r["exercise"]["id"] == str(exercise.id)]
+    # Exactly one row, holding the max (140kg), never clobbered by the 80kg set.
+    assert len(pr_rows) == 1
+    assert pr_rows[0]["max_weight_kg"] == 140.0
+
+
+async def test_pr_concurrent_first_sets_converge(test_user, db_session, setup_db):
+    """B7: two concurrent first-PR upserts for the same (user, exercise) — each in
+    its own DB session — must converge to ONE row (enforced by the unique
+    constraint) instead of duplicating and later raising MultipleResultsFound."""
+    from sqlalchemy import select
+
+    from app.models.workout import PersonalRecord
+    from app.services.workout_service import check_and_update_pr
+    from tests.conftest import TEST_USER_ID
+
+    exercise = await _create_exercise(db_session, "pr-concurrent")
+
+    _engine, session_factory = setup_db
+
+    # Two independent sessions, both inserting the first PR for the same key.
+    async with session_factory() as s1, session_factory() as s2:
+        pr1 = await check_and_update_pr(s1, TEST_USER_ID, exercise.id, 100.0, 5)
+        pr2 = await check_and_update_pr(s2, TEST_USER_ID, exercise.id, 120.0, 5)
+        assert pr1 is True
+        assert pr2 is True
+        await s1.commit()
+        # The second commit conflicts on uq_personal_records_user_exercise; the
+        # upsert resolves it to an UPDATE (120 > 100) rather than a duplicate row.
+        await s2.commit()
+
+    # Exactly one PR row survives, and a later read does NOT raise.
+    result = await db_session.execute(
+        select(PersonalRecord).where(
+            PersonalRecord.user_id == TEST_USER_ID,
+            PersonalRecord.exercise_id == exercise.id,
+        )
+    )
+    rows = result.scalars().all()
+    assert len(rows) == 1
+    assert rows[0].max_weight_kg == 120.0

@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.datetime_utils import utcnow_naive
@@ -33,40 +34,49 @@ async def check_and_update_pr(
     weight_kg: float | None,
     reps: int,
 ) -> bool:
-    """Check if this set is a new PR. Returns True if it's a PR."""
+    """Check if this set is a new PR. Returns True if it's a PR.
+
+    B7: this is a PostgreSQL upsert rather than select-then-insert so two
+    concurrent first-PR sets for the same ``(user_id, exercise_id)`` converge
+    to a single row (enforced by ``uq_personal_records_user_exercise``) instead
+    of racing into duplicates that later crash ``scalar_one_or_none()``. The PR
+    row is only overwritten when the new estimated 1RM is strictly higher
+    (``WHERE excluded.estimated_1rm > personal_records.estimated_1rm``), so a
+    weaker concurrent set never clobbers a stronger one (no lost update).
+    """
     if not weight_kg or weight_kg <= 0:
         return False
 
     e1rm = estimate_1rm(weight_kg, reps)
+    now = utcnow_naive()
 
-    result = await session.execute(
-        select(PersonalRecord).where(
-            PersonalRecord.user_id == user_id,
-            PersonalRecord.exercise_id == exercise_id,
-        )
+    stmt = pg_insert(PersonalRecord).values(
+        user_id=user_id,
+        exercise_id=exercise_id,
+        max_weight_kg=weight_kg,
+        max_reps_at_weight=reps,
+        estimated_1rm=e1rm,
+        achieved_at=now,
     )
-    existing_pr = result.scalar_one_or_none()
+    stmt = stmt.on_conflict_do_update(
+        constraint="uq_personal_records_user_exercise",
+        set_={
+            "max_weight_kg": stmt.excluded.max_weight_kg,
+            "max_reps_at_weight": stmt.excluded.max_reps_at_weight,
+            "estimated_1rm": stmt.excluded.estimated_1rm,
+            "achieved_at": stmt.excluded.achieved_at,
+        },
+        where=stmt.excluded.estimated_1rm > PersonalRecord.estimated_1rm,
+    ).returning(PersonalRecord.id, func.coalesce(PersonalRecord.estimated_1rm, 0.0))
 
-    if not existing_pr:
-        pr = PersonalRecord(
-            user_id=user_id,
-            exercise_id=exercise_id,
-            max_weight_kg=weight_kg,
-            max_reps_at_weight=reps,
-            estimated_1rm=e1rm,
-            achieved_at=utcnow_naive(),
-        )
-        session.add(pr)
-        return True
+    result = await session.execute(stmt)
+    row = result.first()
 
-    if e1rm > (existing_pr.estimated_1rm or 0):
-        existing_pr.max_weight_kg = weight_kg
-        existing_pr.max_reps_at_weight = reps
-        existing_pr.estimated_1rm = e1rm
-        existing_pr.achieved_at = utcnow_naive()
-        return True
-
-    return False
+    # Three outcomes:
+    #   - row is None  -> conflict, but WHERE failed (not a higher 1RM): not a PR.
+    #   - row returned -> either an INSERT (brand-new PR) or an UPDATE that fired
+    #     because the new 1RM was strictly higher; both mean "this set is a PR".
+    return row is not None
 
 
 async def get_volume_by_muscle(
