@@ -40,15 +40,58 @@ _VISION_MEDIA_TYPE = {
     "image/heif": "image/jpeg",
 }
 
+# A5: ISO base-media-file brands used by HEIC/HEIF (the `ftyp` box at bytes 4-7
+# is followed by one of these major brands).
+_HEIF_BRANDS: frozenset[bytes] = frozenset(
+    {b"heic", b"heix", b"heif", b"mif1", b"msf1", b"hevc", b"hevx"}
+)
+
+
+def looks_like_supported_image(data: bytes) -> bool:
+    """Magic-byte sniff for the image types we accept (A5).
+
+    The route otherwise trusts the client's Content-Type header and would
+    forward arbitrary bytes (a paid-resource abuse / polyglot vector) to the
+    vision provider. This validates the actual leading bytes against the
+    signatures for JPEG / PNG / WebP / HEIC-HEIF so non-image content is rejected
+    BEFORE any provider call. It is intentionally a cheap header check, not a
+    full decode.
+    """
+    if len(data) < 12:
+        return False
+    # JPEG: FF D8 FF
+    if data[:3] == b"\xff\xd8\xff":
+        return True
+    # PNG: 89 50 4E 47 0D 0A 1A 0A
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return True
+    # WebP: "RIFF" .... "WEBP"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return True
+    # HEIC/HEIF: ISO-BMFF — "....ftyp<brand>"
+    if data[4:8] == b"ftyp" and data[8:12] in _HEIF_BRANDS:
+        return True
+    return False
+
+# Flash C1: the prompt is in Spanish and explicitly requests the food name "en
+# español latinoamericano" so recognized names are stored in Spanish (the
+# Spanish-first requirement). The JSON keys and the `confidence` enum values
+# stay in English because the parser (`_to_response`) pins that exact contract —
+# only the `food` VALUE is localized.
 _PROMPT = (
-    "You are a nutrition assistant. Identify the single main food in this image "
-    "and estimate the portion. Respond with ONLY a compact JSON object, no prose, "
-    "with exactly these keys: "
+    "Eres un asistente de nutrición. Identifica el único alimento principal en "
+    "esta imagen y estima la porción. El nombre del alimento (campo \"food\") "
+    "debe estar SIEMPRE en español latinoamericano (por ejemplo: \"plátano\", "
+    "\"arroz blanco\", \"pechuga de pollo a la plancha\"), nunca en inglés. "
+    "Responde ÚNICAMENTE con un objeto JSON compacto, sin texto adicional, con "
+    "exactamente estas claves: "
     '{"food": string, "grams": number, "confidence": "high"|"medium"|"low", '
     '"calories": number, "protein_g": number, "carbs_g": number, "fat_g": number}. '
-    "grams is the estimated edible weight of the portion shown. calories and the "
-    "macros are for that portion. If you cannot tell, use your best estimate and "
-    'set confidence to "low". Do not include any text outside the JSON object.'
+    "Las claves del JSON y los valores de \"confidence\" (high/medium/low) deben "
+    "permanecer en inglés tal cual. \"grams\" es el peso comestible estimado de "
+    "la porción mostrada; \"calories\" y los macros corresponden a esa porción. "
+    "Si no puedes determinarlo, usa tu mejor estimación y pon \"confidence\" en "
+    '"low". No incluyas ningún texto fuera del objeto JSON.'
 )
 
 _MAX_TOKENS = 512

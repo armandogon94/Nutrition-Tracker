@@ -8,9 +8,12 @@ from app.schemas.product import ProductResponse
 
 
 class MealItemCreate(BaseModel):
+    # B5 / Flash A1: bound the quantities so a client can't submit negative,
+    # zero, or absurdly large values that would produce negative or overflowing
+    # macros in the daily-nutrition aggregation.
     product_id: uuid.UUID
-    quantity_servings: float = 1.0
-    quantity_grams: float | None = None
+    quantity_servings: float = Field(default=1.0, gt=0, le=10000)
+    quantity_grams: float | None = Field(default=None, gt=0, le=100000)
 
 
 class MealItemResponse(BaseModel):
