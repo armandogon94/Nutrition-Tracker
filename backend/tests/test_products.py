@@ -284,6 +284,72 @@ async def test_barcode_lookup_cascades_to_external_api(client, monkeypatch):
     assert data["source"] == "open_food_facts"
 
 
+async def test_barcode_lookup_refetches_stale_trusted_row(client, db_session, monkeypatch):
+    """A trusted cache row older than the TTL is re-fetched (cache-aside refresh)."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.schemas.product import ProductCreate
+
+    stale_dt = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=30)
+    db_session.add(
+        _make_product(
+            barcode="7501099900001",
+            name="Stale Yogurt",
+            source="open_food_facts",
+            calories=100.0,
+            created_at=stale_dt,
+            updated_at=None,
+        )
+    )
+    await db_session.commit()
+
+    fresh = ProductCreate(
+        barcode="7501099900001",
+        name="Fresh Yogurt",
+        brand="Yoplait",
+        serving_size_g=150.0,
+        calories=80.0,  # the externally-corrected value
+        protein_g=5.0,
+        carbs_g=10.0,
+        fat_g=2.0,
+        fiber_g=0.0,
+        source="open_food_facts",
+    )
+
+    async def mock_lookup(barcode, http_client):
+        return fresh
+
+    monkeypatch.setattr("app.api.v1.products.lookup_product", mock_lookup)
+
+    response = await client.get("/api/v1/products/barcode/7501099900001")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["calories"] == 80.0, "stale row should have been re-fetched"
+    assert data["name"] == "Fresh Yogurt"
+
+
+async def test_barcode_lookup_fresh_trusted_row_skips_external(client, db_session, monkeypatch):
+    """A fresh trusted cache row is returned without any external lookup."""
+    db_session.add(
+        _make_product(
+            barcode="7501099900002",
+            name="Fresh Milk",
+            source="open_food_facts",
+            calories=42.0,
+        )
+    )
+    await db_session.commit()
+
+    async def boom(barcode, http_client):
+        raise AssertionError("external lookup must not run for a fresh cache row")
+
+    monkeypatch.setattr("app.api.v1.products.lookup_product", boom)
+
+    response = await client.get("/api/v1/products/barcode/7501099900002")
+    assert response.status_code == 200
+    assert response.json()["calories"] == 42.0
+
+
 async def test_barcode_lookup_not_found_returns_404(client, monkeypatch):
     """Barcode lookup returns 404 when no source recognizes the barcode."""
 

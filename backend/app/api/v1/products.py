@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -23,6 +24,24 @@ router = APIRouter()
 _TRUSTED_SOURCES: frozenset[str] = frozenset(
     {"open_food_facts", "fatsecret", "usda", "seed"}
 )
+
+# Cache-aside TTL: a trusted barcode row older than this is re-fetched from the
+# external sources so stale nutrition data (e.g. an Open Food Facts entry that
+# was later corrected) eventually refreshes. CLAUDE.md specifies a 7–14 day
+# product cache TTL.
+_CACHE_TTL = timedelta(days=14)
+
+
+def _is_stale(product: Product) -> bool:
+    """True when a cached product is older than the TTL and should be re-fetched.
+
+    Timestamps are stored as naive UTC; ``updated_at`` is None until the row is
+    first refreshed, so we fall back to ``created_at``.
+    """
+    ts = product.updated_at or product.created_at
+    if ts is None:
+        return True
+    return datetime.now(timezone.utc).replace(tzinfo=None) - ts > _CACHE_TTL
 
 
 def escape_like(s: str) -> str:
@@ -88,7 +107,10 @@ async def lookup_product_by_barcode(
     # row is user-supplied and must not shadow the global lookup, so we fall
     # through to external sources and let a verified row win. We still keep the
     # manual row as a last-resort answer if no external source recognizes it.
-    if cached is not None and cached.source in _TRUSTED_SOURCES:
+    # A *fresh* trusted row short-circuits; a *stale* one (older than the TTL)
+    # falls through to re-fetch and upsert current data (cache-aside refresh),
+    # and is still returned below if the external lookup is unavailable.
+    if cached is not None and cached.source in _TRUSTED_SOURCES and not _is_stale(cached):
         return cached
 
     # 2. Cascade through external APIs using the app-scoped shared client.
@@ -106,11 +128,15 @@ async def lookup_product_by_barcode(
     # manual row both resolve via ON CONFLICT (barcode): a manual row is upgraded
     # to the trusted external data; a concurrent insert never raises. We then
     # re-select the single canonical row by barcode.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     values = product_data.model_dump()
     update_cols = {k: v for k, v in values.items() if k != "barcode"}
+    # Stamp the refresh time so a re-fetched row counts as fresh again — the Core
+    # upsert bypasses the ORM unit of work, so the model's `onupdate` never fires.
+    update_cols["updated_at"] = now
     await db.execute(
         pg_insert(Product)
-        .values(**values)
+        .values(**values, updated_at=now)
         .on_conflict_do_update(index_elements=["barcode"], set_=update_cols)
     )
     # The upsert is a Core statement that bypasses the ORM unit of work, so any
