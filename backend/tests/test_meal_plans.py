@@ -332,6 +332,56 @@ async def test_generate_shopping_list_is_idempotent(auth_client, db_session):
     assert len(result.scalars().all()) == 1
 
 
+async def test_generate_shopping_list_concurrent_does_not_500(auth_client, db_session, setup_db):
+    """Two concurrent generations for the same plan converge to ONE list without
+    raising. Regression: B11's uq_shopping_lists_user_plan + a non-conflict-safe
+    delete-then-insert writer would 500 (IntegrityError + poisoned session) under
+    concurrency; the FOR UPDATE row-lock on the plan serializes them instead.
+    (Self-review Wave 9.)"""
+    import asyncio
+    from uuid import UUID
+
+    from sqlalchemy import select
+
+    from app.models.shopping_list import ShoppingList
+    from app.services.shopping_list import generate_shopping_list
+    from tests.conftest import TEST_USER_ID
+
+    product = await _create_product(db_session, "concurrent")
+    create_resp = await auth_client.post(
+        "/api/v1/meal-plans",
+        json={"name": "Concurrent Plan", "week_start_date": "2026-06-08"},
+    )
+    plan_id = UUID(create_resp.json()["id"])
+    await auth_client.post(
+        f"/api/v1/meal-plans/{plan_id}/items",
+        json={
+            "product_id": str(product.id),
+            "day_of_week": 0,
+            "meal_type": "breakfast",
+            "quantity_servings": 1.0,
+        },
+    )
+
+    _engine, session_factory = setup_db
+
+    async def gen():
+        async with session_factory() as s:
+            sl = await generate_shopping_list(s, plan_id, TEST_USER_ID)
+            lid = sl.id  # capture before commit
+            await s.commit()
+            return lid
+
+    # Run concurrently — the plan row-lock serializes them, so neither 500s.
+    results = await asyncio.gather(gen(), gen())
+    assert all(r is not None for r in results)
+
+    result = await db_session.execute(
+        select(ShoppingList).where(ShoppingList.meal_plan_id == plan_id)
+    )
+    assert len(result.scalars().all()) == 1, "exactly one list survives concurrent generation"
+
+
 async def test_toggle_shopping_item(auth_client, db_session):
     product = await _create_product(db_session, "toggle")
 

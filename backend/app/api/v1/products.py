@@ -134,6 +134,11 @@ async def lookup_product_by_barcode(
     # Stamp the refresh time so a re-fetched row counts as fresh again — the Core
     # upsert bypasses the ORM unit of work, so the model's `onupdate` never fires.
     update_cols["updated_at"] = now
+    # Upgrading a row to a trusted external source makes it a shared catalog row,
+    # so clear any manual creator id — otherwise an upgraded row keeps a stale
+    # created_by_user_id while its source becomes e.g. open_food_facts, leaving
+    # inconsistent provenance (self-review Wave 9).
+    update_cols["created_by_user_id"] = None
     await db.execute(
         pg_insert(Product)
         .values(**values, updated_at=now)

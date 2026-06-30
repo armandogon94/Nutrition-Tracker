@@ -31,11 +31,19 @@ async def generate_shopping_list(
     """Generate shopping list from meal plan by aggregating ingredients."""
     # Verify the meal plan exists AND belongs to the requesting user (no IDOR):
     # never aggregate or generate a list from another user's plan.
+    #
+    # Row-lock the plan (FOR UPDATE) so concurrent generation for the same
+    # (user, plan) serializes. Without it, two requests both SELECT-none →
+    # DELETE → INSERT, and the second violates uq_shopping_lists_user_plan with
+    # an unhandled IntegrityError (500 + poisoned session). With the lock the
+    # loser waits, then cleanly replaces the winner's list. (B11 follow-up.)
     result = await session.execute(
-        select(MealPlan).where(
+        select(MealPlan)
+        .where(
             MealPlan.id == meal_plan_id,
             MealPlan.user_id == user_id,
         )
+        .with_for_update()
     )
     meal_plan = result.scalar_one_or_none()
     if not meal_plan:

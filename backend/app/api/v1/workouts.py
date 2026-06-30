@@ -192,6 +192,10 @@ async def log_set(
     # timeout + retry (or the offline sweep) can replay the same set. Insert with
     # ON CONFLICT (session_id, client_set_id) DO NOTHING, then re-select: a replay
     # returns the original row instead of duplicating the set or re-firing the PR.
+    # NOTE (self-review Wave 9): the iOS client does not yet send client_set_id
+    # and has no durable set-replay path — both land with the Wave-10 offline-sync
+    # slice. This backend support is correct and RESERVED for it; current clients
+    # fall through to the legacy path below.
     if data.client_set_id is not None:
         existing = await db.execute(
             select(WorkoutSet).where(
